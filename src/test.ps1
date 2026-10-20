@@ -1,11 +1,11 @@
-# Test automatici di IntunePackageGrabber.exe: simula IME che estrae pacchetti in una IMECache finta.
-# Uso: powershell -ExecutionPolicy Bypass -File test.ps1 [-Work <cartella di lavoro>]
+# Automated tests for IntunePackageGrabber.exe: simulates IME extracting packages into a fake IMECache.
+# Usage: powershell -ExecutionPolicy Bypass -File test.ps1 [-Work <work folder>] [-Exe <exe>]
 param(
     [string]$Work = (Join-Path $env:TEMP 'IPG-tests'),
     [string]$Exe = (Join-Path $PSScriptRoot '..\IntunePackageGrabber.exe')
 )
 $ErrorActionPreference = 'Stop'
-# AppWorkload.log finto con la policy di un'app nota (per il test con nome/setup letti dalla policy)
+# Fake AppWorkload.log with the policy of a known app (for the test with name/setup read from the policy)
 $KnownAppId = '11111111-2222-3333-4444-555555555555'
 $KnownAppName = 'Contoso Test App'
 $imeLogs = Join-Path $Work 'ime-logs'
@@ -80,12 +80,12 @@ function Get-RandomBytes([int]$Size) { $b = New-Object byte[] $Size; $rng.NextBy
 
 function Remove-Tree([string]$Path) { if (Test-Path -LiteralPath $Path) { cmd /c rd /s /q "\\?\$Path" 2>$null } }
 
-# Un errore dello script di test non deve interrompere la suite: viene registrato come FAIL
-trap { Assert 'TEST-SCRIPT' "riga $($_.InvocationInfo.ScriptLineNumber)" $false $_.Exception.Message; continue }
+# A test script error must not stop the suite: it is recorded as FAIL
+trap { Assert 'TEST-SCRIPT' "line $($_.InvocationInfo.ScriptLineNumber)" $false $_.Exception.Message; continue }
 
 # ---------------------------------------------------------------------------------------------
-# T1: estrazione progressiva, con un file grande tenuto aperto in scrittura per ~8 secondi
-$s = New-Scenario 'T1-estrazione-progressiva'
+# T1: progressive extraction, with a large file kept open for writing for ~8 seconds
+$s = New-Scenario 'T1-progressive-extraction'
 $p = Start-Grabber $s -ExitAfter 40
 Start-Sleep 2
 $pkg = Join-Path $s.Cache "$KnownAppId`_1"
@@ -95,23 +95,23 @@ New-Item -ItemType Directory "$pkg\Files" -Force | Out-Null
 $fs = [IO.File]::Open("$pkg\Files\big.bin", 'Create', 'Write', 'Read')
 for ($i = 0; $i -lt 8; $i++) { $chunk = Get-RandomBytes 1MB; $fs.Write($chunk, 0, $chunk.Length); Start-Sleep 1 }
 $fs.Close()
-New-Package $pkg @{ 'SupportFiles\last.txt' = [Text.Encoding]::ASCII.GetBytes('ultimo file') }
+New-Package $pkg @{ 'SupportFiles\last.txt' = [Text.Encoding]::ASCII.GetBytes('last file') }
 $p.WaitForExit(90000) | Out-Null
 $cap = Get-Captures $s
-Assert $s.Name 'Una sola cattura' ($cap.Count -eq 1) "$($cap.Count) catture"
+Assert $s.Name 'Exactly one capture' ($cap.Count -eq 1) "$($cap.Count) captures"
 if ($cap.Count -ge 1) {
-    Assert $s.Name 'Contenuto identico (hash MD5)' (Compare-Content $pkg (Join-Path $cap[0].FullName 'Content'))
-    Assert $s.Name 'big.bin completo (8 MB)' ((Get-Item -LiteralPath (Join-Path $cap[0].FullName 'Content\Files\big.bin')).Length -eq 8MB)
+    Assert $s.Name 'Identical content (MD5 hash)' (Compare-Content $pkg (Join-Path $cap[0].FullName 'Content'))
+    Assert $s.Name 'big.bin complete (8 MB)' ((Get-Item -LiteralPath (Join-Path $cap[0].FullName 'Content\Files\big.bin')).Length -eq 8MB)
     $iw = Get-ChildItem -LiteralPath $cap[0].FullName -Filter *.intunewin
-    Assert $s.Name '.intunewin valido con SetupFile della policy (install.ps1)' ($iw -and (Test-Intunewin $iw.FullName 'install.ps1'))
-    Assert $s.Name 'Nome app dalla policy IME' ($cap[0].Name -like "$KnownAppName`_v1_*") $cap[0].Name
-    Assert $s.Name 'app-info.txt e policy.json' ((Test-Path -LiteralPath "$($cap[0].FullName)\app-info.txt") -and (Test-Path -LiteralPath "$($cap[0].FullName)\policy.json"))
+    Assert $s.Name 'Valid .intunewin with the policy SetupFile (install.ps1)' ($iw -and (Test-Intunewin $iw.FullName 'install.ps1'))
+    Assert $s.Name 'App name from the IME policy' ($cap[0].Name -like "$KnownAppName`_v1_*") $cap[0].Name
+    Assert $s.Name 'app-info.txt and policy.json' ((Test-Path -LiteralPath "$($cap[0].FullName)\app-info.txt") -and (Test-Path -LiteralPath "$($cap[0].FullName)\policy.json"))
 }
 
 # ---------------------------------------------------------------------------------------------
-# T2: piu' pacchetti in parallelo (stessa app in due versioni + app sconosciuta) e cartelle da ignorare
-$s = New-Scenario 'T2-parallelo'
-New-Item -ItemType Directory "$($s.Cache)\HealthScripts", "$($s.Cache)\NonUnGuid" -Force | Out-Null
+# T2: parallel packages (same app in two versions + unknown app) and folders to ignore
+$s = New-Scenario 'T2-parallel'
+New-Item -ItemType Directory "$($s.Cache)\HealthScripts", "$($s.Cache)\NotAGuid" -Force | Out-Null
 New-Package "$($s.Cache)\HealthScripts" @{ 'x.ps1' = (Get-RandomBytes 10) }
 $unknown = [guid]::NewGuid().ToString()
 $p = Start-Grabber $s -ExitAfter 30
@@ -121,22 +121,22 @@ New-Package (Join-Path $s.Cache "$KnownAppId`_2") @{ 'install.ps1' = (Get-Random
 New-Package (Join-Path $s.Cache "$unknown`_1") @{ 'setup.exe' = (Get-RandomBytes 5000); 'data\c.bin' = (Get-RandomBytes 1MB) }
 $p.WaitForExit(90000) | Out-Null
 $cap = Get-Captures $s
-Assert $s.Name '3 catture (HealthScripts e non-GUID ignorate)' ($cap.Count -eq 3) (($cap | ForEach-Object Name) -join ', ')
-Assert $s.Name 'Cartelle distinte per v1 e v2 della stessa app' ((@($cap | Where-Object Name -like '*_v1_*').Count -ge 2) -and (@($cap | Where-Object Name -like '*_v2_*').Count -eq 1))
+Assert $s.Name '3 captures (HealthScripts and non-GUID ignored)' ($cap.Count -eq 3) (($cap | ForEach-Object Name) -join ', ')
+Assert $s.Name 'Separate folders for v1 and v2 of the same app' ((@($cap | Where-Object Name -like '*_v1_*').Count -ge 2) -and (@($cap | Where-Object Name -like '*_v2_*').Count -eq 1))
 $u = $cap | Where-Object Name -like "$unknown*"
-Assert $s.Name 'App sconosciuta: nome = App ID' ([bool]$u)
+Assert $s.Name 'Unknown app: name = App ID' ([bool]$u)
 if ($u) {
     $iw = Get-ChildItem -LiteralPath $u.FullName -Filter *.intunewin
-    Assert $s.Name 'App sconosciuta: setup dedotto (setup.exe) e .intunewin valido' ($iw -and (Test-Intunewin $iw.FullName 'setup.exe'))
+    Assert $s.Name 'Unknown app: setup guessed (setup.exe) and valid .intunewin' ($iw -and (Test-Intunewin $iw.FullName 'setup.exe'))
 }
 foreach ($c in $cap) {
     $srcName = if ($c.Name -like "$unknown*") { "$unknown`_1" } elseif ($c.Name -like '*_v2_*') { "$KnownAppId`_2" } else { "$KnownAppId`_1" }
-    Assert $s.Name "Contenuto identico: $($c.Name)" (Compare-Content (Join-Path $s.Cache $srcName) (Join-Path $c.FullName 'Content'))
+    Assert $s.Name "Identical content: $($c.Name)" (Compare-Content (Join-Path $s.Cache $srcName) (Join-Path $c.FullName 'Content'))
 }
 
 # ---------------------------------------------------------------------------------------------
-# T3: cartella rimossa da IME prima che l'estrazione sia stabile
-$s = New-Scenario 'T3-rimossa-prima'
+# T3: folder removed by IME before the extraction is stable
+$s = New-Scenario 'T3-removed-before'
 $p = Start-Grabber $s -ExitAfter 15
 Start-Sleep 2
 $pkg = Join-Path $s.Cache "$([guid]::NewGuid())_1"
@@ -144,12 +144,12 @@ New-Package $pkg @{ 'setup.exe' = (Get-RandomBytes 100) }
 Start-Sleep 1
 Remove-Tree $pkg
 $p.WaitForExit(60000) | Out-Null
-Assert $s.Name 'Nessuna cattura' ((Get-Captures $s).Count -eq 0)
-Assert $s.Name 'Log: cartella rimossa' ((Get-Log $s) -match 'rimossa da IME prima della copia')
+Assert $s.Name 'No capture' ((Get-Captures $s).Count -eq 0)
+Assert $s.Name 'Log: folder removed' ((Get-Log $s) -match 'removed by IME before the copy')
 
 # ---------------------------------------------------------------------------------------------
-# T4: cartella cancellata durante la copia -> errore gestito, nessun crash
-$s = New-Scenario 'T4-rimossa-durante-copia'
+# T4: folder deleted during the copy -> handled error, no crash
+$s = New-Scenario 'T4-removed-during-copy'
 $p = Start-Grabber $s -ExitAfter 25
 Start-Sleep 2
 $pkg = Join-Path $s.Cache "$([guid]::NewGuid())_1"
@@ -157,65 +157,65 @@ $chunk = Get-RandomBytes 1MB
 New-Item -ItemType Directory "$pkg\Files" -Force | Out-Null
 [IO.File]::WriteAllBytes("$pkg\setup.exe", (Get-RandomBytes 100))
 for ($i = 0; $i -lt 400; $i++) { [IO.File]::WriteAllBytes("$pkg\Files\f$i.bin", $chunk) }
-$started = Wait-Log $s 'Cattura di' 30
+$started = Wait-Log $s 'Capturing ' 30
 Remove-Tree $pkg
 $p.WaitForExit(60000) | Out-Null
 $log = Get-Log $s
-Assert $s.Name 'Copia avviata' $started
-Assert $s.Name 'Errore registrato, processo terminato regolarmente' (($log -match 'ERRORE') -and ($log -match 'Uscita automatica')) (($log -split "`r?`n" | Select-String 'ERRORE' | Select-Object -First 1) -join '')
+Assert $s.Name 'Copy started' $started
+Assert $s.Name 'Error logged, process exited normally' (($log -match 'ERROR') -and ($log -match 'Automatic exit')) (($log -split "`r?`n" | Select-String 'ERROR' | Select-Object -First 1) -join '')
 
 # ---------------------------------------------------------------------------------------------
-# T5: retry - IME rimuove la cartella catturata e la ricrea
+# T5: retry - IME removes the captured folder and recreates it
 $s = New-Scenario 'T5-retry'
 $p = Start-Grabber $s -ExitAfter 30
 Start-Sleep 2
 $pkg = Join-Path $s.Cache "$([guid]::NewGuid())_1"
 New-Package $pkg @{ 'setup.exe' = (Get-RandomBytes 100) }
-Wait-Log $s 'creato e verificato' 30 | Out-Null
+Wait-Log $s 'created and verified' 30 | Out-Null
 Remove-Tree $pkg
 Start-Sleep 2
 New-Package $pkg @{ 'setup.exe' = (Get-RandomBytes 200) }
 $p.WaitForExit(90000) | Out-Null
-Assert $s.Name 'Ricatturata dopo la ricomparsa (2 catture)' ((Get-Captures $s).Count -eq 2) "$((Get-Captures $s).Count) catture"
+Assert $s.Name 'Captured again after reappearing (2 captures)' ((Get-Captures $s).Count -eq 2) "$((Get-Captures $s).Count) captures"
 
 # ---------------------------------------------------------------------------------------------
-# T6: percorsi oltre 260 caratteri (destinazione lunga + sottocartelle profonde)
-$s = New-Scenario 'T6-percorsi-lunghi'
-$longDest = Join-Path $s.Out ('Cartella con nome molto lungo per simulare OneDrive - Nome Azienda\' * 2 + 'Archivio pacchetti Intune catturati')
+# T6: paths over 260 characters (long destination + deep subfolders)
+$s = New-Scenario 'T6-long-paths'
+$longDest = Join-Path $s.Out ('Folder with a very long name to simulate OneDrive - Company Name\' * 2 + 'Archive of captured Intune packages')
 $p = Start-Grabber $s -ExitAfter 30 -Dest $longDest
 Start-Sleep 2
 $pkg = Join-Path $s.Cache "$([guid]::NewGuid())_1"
-$deep = 'Files\' + ('sottocartella_profonda_\' * 4) + 'file_con_nome_lungo_del_pacchetto.bin'
+$deep = 'Files\' + ('deep_subfolder_level_\' * 4) + 'package_file_with_a_long_name.bin'
 New-Package $pkg @{ 'setup.exe' = (Get-RandomBytes 100); $deep = (Get-RandomBytes 1000) }
 $p.WaitForExit(90000) | Out-Null
 $cap = Get-Captures $s -Dest $longDest
 $maxLen = if ($cap) { (Get-ChildItem -LiteralPath "\\?\$($cap[0].FullName)" -Recurse -File | ForEach-Object { $_.FullName.Length - 4 } | Measure-Object -Maximum).Maximum } else { 0 }
-Assert $s.Name "Cattura con percorso > 260 caratteri" ($cap.Count -eq 1 -and $maxLen -gt 260 -and (Get-Log $s) -match 'creato e verificato') "max $maxLen caratteri"
+Assert $s.Name "Capture with path > 260 characters" ($cap.Count -eq 1 -and $maxLen -gt 260 -and (Get-Log $s) -match 'created and verified') "max $maxLen characters"
 
 # ---------------------------------------------------------------------------------------------
-# T7: IMECache inesistente all'avvio, creata dopo
-$s = New-Scenario 'T7-cache-creata-dopo'
+# T7: IMECache missing at startup, created later
+$s = New-Scenario 'T7-cache-created-later'
 Remove-Item $s.Cache -Force
 $p = Start-Grabber $s -ExitAfter 20
 Start-Sleep 3
 New-Package (Join-Path $s.Cache "$([guid]::NewGuid())_1") @{ 'setup.exe' = (Get-RandomBytes 100) }
 $p.WaitForExit(60000) | Out-Null
-Assert $s.Name 'Cattura dopo la creazione di IMECache' ((Get-Captures $s).Count -eq 1)
+Assert $s.Name 'Capture after IMECache is created' ((Get-Captures $s).Count -eq 1)
 
 # ---------------------------------------------------------------------------------------------
-# T8: nessun file di setup individuabile -> contenuto salvato, .intunewin non creato con messaggio chiaro
-$s = New-Scenario 'T8-setup-sconosciuto'
+# T8: no setup file found -> content saved, .intunewin not created, clear message
+$s = New-Scenario 'T8-unknown-setup'
 $p = Start-Grabber $s -ExitAfter 15
 Start-Sleep 2
 New-Package (Join-Path $s.Cache "$([guid]::NewGuid())_1") @{ 'readme.txt' = (Get-RandomBytes 100) }
 $p.WaitForExit(60000) | Out-Null
 $cap = Get-Captures $s
-Assert $s.Name 'Contenuto salvato' ($cap.Count -eq 1 -and (Test-Path -LiteralPath "$($cap[0].FullName)\Content\readme.txt"))
-Assert $s.Name 'Messaggio: setup non determinato' ((Get-Log $s) -match 'setup non determinato')
+Assert $s.Name 'Content saved' ($cap.Count -eq 1 -and (Test-Path -LiteralPath "$($cap[0].FullName)\Content\readme.txt"))
+Assert $s.Name 'Message: setup file not determined' ((Get-Log $s) -match 'setup file not determined')
 
 # ---------------------------------------------------------------------------------------------
-# T9: pulsanti Listen / Stop (UI Automation)
-$s = New-Scenario 'T9-pulsanti'
+# T9: Listen / Stop buttons (UI Automation)
+$s = New-Scenario 'T9-buttons'
 $p = Start-Grabber $s -ExitAfter 45 -NoListen
 $win = $null
 for ($i = 0; $i -lt 50 -and -not $win; $i++) {
@@ -223,30 +223,30 @@ for ($i = 0; $i -lt 50 -and -not $win; $i++) {
     $p.Refresh()
     if ($p.MainWindowHandle -ne [IntPtr]::Zero) { $win = [Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle) }
 }
-Assert $s.Name 'Finestra trovata via UI Automation' ([bool]$win)
+Assert $s.Name 'Window found via UI Automation' ([bool]$win)
 Add-Type -Namespace IPG -Name Native -MemberDefinition '[DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);'
-# Clic reale sul pulsante (BM_CLICK sull'handle nativo trovato per nome via UI Automation)
+# Real button click (BM_CLICK on the native handle found by name via UI Automation)
 function Invoke-Button([string]$Text) {
     $btn = $win.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.Name -like "*$Text" } | Select-Object -First 1
     [void][IPG.Native]::SendMessage([IntPtr]$btn.Current.NativeWindowHandle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
 }
 New-Package (Join-Path $s.Cache "$([guid]::NewGuid())_1") @{ 'setup.exe' = (Get-RandomBytes 100) }
 Start-Sleep 6
-Assert $s.Name 'Prima di Listen: nessuna cattura' ((Get-Captures $s).Count -eq 0)
+Assert $s.Name 'Before Listen: no capture' ((Get-Captures $s).Count -eq 0)
 Invoke-Button 'Listen'
-Assert $s.Name 'Dopo Listen: cartella gia presente catturata' (Wait-Log $s 'creato e verificato' 30)
+Assert $s.Name 'After Listen: existing folder captured' (Wait-Log $s 'created and verified' 30)
 Invoke-Button 'Stop'
 Start-Sleep 1
 New-Package (Join-Path $s.Cache "$([guid]::NewGuid())_1") @{ 'setup.exe' = (Get-RandomBytes 100) }
 Start-Sleep 6
-Assert $s.Name 'Dopo Stop: nuova cartella non catturata' ((Get-Captures $s).Count -eq 1)
+Assert $s.Name 'After Stop: new folder not captured' ((Get-Captures $s).Count -eq 1)
 Invoke-Button 'Listen'
 Start-Sleep 8
-Assert $s.Name 'Di nuovo Listen: catturata anche la seconda' ((Get-Captures $s).Count -eq 2)
+Assert $s.Name 'Listen again: second folder captured too' ((Get-Captures $s).Count -eq 2)
 $p.WaitForExit(90000) | Out-Null
 
 # ---------------------------------------------------------------------------------------------
 if ($null -ne $settingsBackup) { Set-Content -Path $settings -Value $settingsBackup -NoNewline } elseif (Test-Path $settings) { Remove-Item $settings }
 $results | Format-Table -AutoSize -Wrap | Out-String -Width 220
 $failed = @($results | Where-Object Result -eq 'FAIL').Count
-"Totale: $($results.Count)  PASS: $($results.Count - $failed)  FAIL: $failed"
+"Total: $($results.Count)  PASS: $($results.Count - $failed)  FAIL: $failed"

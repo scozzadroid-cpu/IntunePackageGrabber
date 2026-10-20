@@ -1,9 +1,9 @@
-# Compila IntunePackageGrabber.exe con il compilatore C# di .NET Framework 4.x (incluso in Windows)
-# e incorpora IntuneWinAppUtil.exe come risorsa.
+# Builds IntunePackageGrabber.exe with the .NET Framework 4.x C# compiler (included in Windows)
+# and embeds IntuneWinAppUtil.exe as a resource.
 param(
     [string]$IntuneWinAppUtil = (Join-Path $PSScriptRoot '..\..\IntuneWinAppUtil.exe'),
     [string]$Output = (Join-Path $PSScriptRoot '..\IntunePackageGrabber.exe'),
-    # Non incorpora IntuneWinAppUtil.exe (build per la distribuzione: l'utente lo scarica dal pulsante nell'interfaccia)
+    # Do not embed IntuneWinAppUtil.exe (distribution build: the user downloads it with the button in the UI)
     [switch]$NoEmbed
 )
 $ErrorActionPreference = 'Stop'
@@ -42,9 +42,9 @@ $cscArgs = @(
 )
 if ($NoEmbed) { }
 elseif (Test-Path $IntuneWinAppUtil) { $cscArgs += "/resource:$((Resolve-Path $IntuneWinAppUtil).Path),IntuneWinAppUtil.exe" }
-else { Write-Warning "IntuneWinAppUtil.exe non trovato in $IntuneWinAppUtil : l'exe non lo incorporera'." }
+else { Write-Warning "IntuneWinAppUtil.exe not found at $IntuneWinAppUtil : it will not be embedded in the exe." }
 $cscArgs += (Join-Path $PSScriptRoot 'Program.cs')
 
 & $csc @cscArgs
-if ($LASTEXITCODE -ne 0) { throw "Compilazione fallita ($LASTEXITCODE)" }
+if ($LASTEXITCODE -ne 0) { throw "Build failed ($LASTEXITCODE)" }
 Get-Item $Output | Select-Object FullName, Length, LastWriteTime

@@ -1,56 +1,56 @@
 # IntunePackageGrabber
 
-Tool Windows (WinForms, singolo exe) che archivia i pacchetti Win32 che Intune Management Extension (IME) scarica quando si installa un'app dal Company Portal.
+Windows tool (WinForms, single exe) that archives the Win32 packages Intune Management Extension (IME) downloads when an app is installed from Company Portal.
 
-IME estrae il contenuto in `C:\Windows\IMECache\<AppId>_<versione>` e lo cancella a fine installazione. Il tool sorveglia la cache, attende che l'estrazione sia completa e per ogni pacchetto salva nella cartella scelta:
+IME extracts the content to `C:\Windows\IMECache\<AppId>_<version>` and deletes it when the installation ends. The tool watches the cache, waits until the extraction is complete and saves each package to the chosen folder:
 
-- `Content\` - copia verificata (numero file e byte) del contenuto estratto
-- `<Nome app>.intunewin` - rigenerato con IntuneWinAppUtil, con il file di setup letto dalla policy IME
-- `app-info.txt` e `policy.json` - nome, versione, comandi di install/uninstall, detection rule e return code letti da `AppWorkload.log`
+- `Content\` - verified copy (file count and bytes) of the extracted content
+- `<App name>.intunewin` - rebuilt with IntuneWinAppUtil, using the setup file from the IME policy
+- `app-info.txt` and `policy.json` - name, version, install/uninstall commands, detection rule and return codes read from `AppWorkload.log`
 
-![Intune Package Grabber in ascolto con un pacchetto catturato](docs/main.png)
+![Intune Package Grabber listening, with one captured package](docs/main.png)
 
-Il `.intunewin` originale non è recuperabile (IME lo scarica cifrato con una chiave protetta dal certificato del dispositivo): quello salvato è un pacchetto equivalente ricreato dal contenuto.
+The original `.intunewin` cannot be recovered (IME downloads it encrypted with a key protected by the device certificate): the saved file is an equivalent package rebuilt from the content.
 
 ## Download
 
-L'exe è nella pagina [Releases](../../releases/latest).
+The exe is on the [Releases](../../releases/latest) page.
 
-## Uso
+## Usage
 
-1. Avviare `IntunePackageGrabber.exe` (richiede diritti di amministratore).
-   Se serve il `.intunewin` e IntuneWinAppUtil.exe non è presente, premere **Scarica IntuneWinAppUtil**: il tool lo scarica dal [repository Microsoft](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool), ne verifica la firma Authenticode di Microsoft e lo salva in `%APPDATA%\IntunePackageGrabber\`.
+1. Run `IntunePackageGrabber.exe` (requires administrator rights).
+   If you need the `.intunewin` and IntuneWinAppUtil.exe is not present, press **Download IntuneWinAppUtil**: the tool downloads it from the [Microsoft repository](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool), checks its Microsoft Authenticode signature and saves it to `%APPDATA%\IntunePackageGrabber\`.
 
-   ![Pulsante Scarica IntuneWinAppUtil](docs/download-button.png)
-2. Scegliere la cartella di archiviazione.
-3. **Listen**, poi avviare l'installazione dal Company Portal.
-4. **Stop** al termine.
+   ![Download IntuneWinAppUtil button](docs/download-button.png)
+2. Choose the archive folder.
+3. Press **Listen**, then start the installation from Company Portal.
+4. Press **Stop** when done.
 
-Opzioni da riga di comando: `--dest <cartella>`, `--listen`, `--cache <cartella>`, `--log <file>`, `--imelogs <cartella>`, `--exit-after <secondi>`.
+Command line options: `--dest <folder>`, `--listen`, `--cache <folder>`, `--log <file>`, `--imelogs <folder>`, `--exit-after <seconds>`.
 
-Impostazioni e log: `%APPDATA%\IntunePackageGrabber\`.
+Settings and log: `%APPDATA%\IntunePackageGrabber\`.
 
-## Requisiti
+## Requirements
 
-- Windows 10/11 gestito da Intune, .NET Framework 4.8
-- [IntuneWinAppUtil.exe](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool) solo per generare il `.intunewin`. Viene cercato in quest'ordine: accanto all'exe, in `%APPDATA%\IntunePackageGrabber\` (pulsante di download), incorporato nell'exe.
+- Intune-managed Windows 10/11, .NET Framework 4.8
+- [IntuneWinAppUtil.exe](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool), only to create the `.intunewin`. It is looked up in this order: next to the exe, in `%APPDATA%\IntunePackageGrabber\` (download button), embedded in the exe.
 
 ## Build
 
 ```powershell
-# Come la release: senza IntuneWinAppUtil incorporato
+# Same as the release: IntuneWinAppUtil not embedded
 powershell -ExecutionPolicy Bypass -File src\build.ps1 -NoEmbed -Output .\IntunePackageGrabber.exe
 
-# Con IntuneWinAppUtil incorporato (uso interno)
-powershell -ExecutionPolicy Bypass -File src\build.ps1 -IntuneWinAppUtil <percorso>\IntuneWinAppUtil.exe -Output .\IntunePackageGrabber.exe
+# With IntuneWinAppUtil embedded (internal use)
+powershell -ExecutionPolicy Bypass -File src\build.ps1 -IntuneWinAppUtil <path>\IntuneWinAppUtil.exe -Output .\IntunePackageGrabber.exe
 ```
 
-Usa il compilatore C# di .NET Framework incluso in Windows, nessun SDK necessario.
+Uses the C# compiler of .NET Framework included in Windows, no SDK required.
 
-## Test
+## Tests
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File src\test.ps1 -Work C:\temp\IPG-tests -Exe .\IntunePackageGrabber.exe
 ```
 
-Simula IME su una cache e un `AppWorkload.log` finti: estrazione progressiva con file aperti in scrittura, pacchetti in parallelo, cartelle rimosse durante la copia, retry, percorsi oltre 260 caratteri, setup non individuabile, pulsanti Listen/Stop.
+Simulates IME on a fake cache and `AppWorkload.log`: progressive extraction with files still open for writing, parallel packages, folders removed during the copy, retries, paths over 260 characters, unknown setup file, Listen/Stop buttons.

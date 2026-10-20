@@ -1,8 +1,8 @@
 // Intune Package Grabber
-// Cattura i pacchetti Win32 che Intune estrae in C:\Windows\IMECache durante un'installazione
-// (es. da Company Portal), ne salva il contenuto e rigenera il file .intunewin con IntuneWinAppUtil.
+// Captures the Win32 packages that Intune extracts to C:\Windows\IMECache during an installation
+// (e.g. from Company Portal), saves their content and rebuilds the .intunewin file with IntuneWinAppUtil.
 //
-// Opzioni da riga di comando (per test): --cache <cartella> --dest <cartella> --log <file> --imelogs <cartella> --listen --exit-after <secondi>
+// Command line options (for testing): --cache <folder> --dest <folder> --log <file> --imelogs <folder> --listen --exit-after <seconds>
 
 using System;
 using System.Collections.Generic;
@@ -37,7 +37,7 @@ namespace IntunePackageGrabber
         [STAThread]
         static void Main(string[] args)
         {
-            // Percorsi oltre 260 caratteri (destinazioni lunghe, es. OneDrive): disattiva la gestione legacy dei path di .NET
+            // Paths over 260 characters (long destinations, e.g. OneDrive): disable .NET legacy path handling
             AppContext.SetSwitch("Switch.System.IO.UseLegacyPathHandling", false);
             AppContext.SetSwitch("Switch.System.IO.BlockLongPaths", false);
 
@@ -47,7 +47,7 @@ namespace IntunePackageGrabber
         }
     }
 
-    // Verifica della firma Authenticode di un file (WinVerifyTrust)
+    // Authenticode signature check of a file (WinVerifyTrust)
     static class Authenticode
     {
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -89,7 +89,7 @@ namespace IntunePackageGrabber
             try
             {
                 Marshal.StructureToPtr(file, pFile, false);
-                // UI nessuna, file, verifica
+                // No UI, file, verify
                 var data = new WinTrustData { cbStruct = (uint)Marshal.SizeOf(typeof(WinTrustData)), dwUIChoice = 2, dwUnionChoice = 1, pFile = pFile, dwStateAction = 1 };
                 int result = WinVerifyTrust(IntPtr.Zero, GenericVerifyV2, ref data);
                 data.dwStateAction = 2;
@@ -129,7 +129,7 @@ namespace IntunePackageGrabber
         static string ImeLogFolder = @"C:\ProgramData\Microsoft\IntuneManagementExtension\Logs";
         const int StableSeconds = 3;
 
-        // Colonne della lista
+        // List columns
         const int ColTime = 0, ColApp = 1, ColVersion = 2, ColStatus = 3, ColSize = 4, ColPath = 5;
 
         static readonly Color Accent = Color.FromArgb(15, 108, 189);
@@ -179,7 +179,7 @@ namespace IntunePackageGrabber
 
             BuildUi();
 
-            // Solo per test automatici: chiude dopo N secondi, attendendo le catture in corso
+            // Automated tests only: closes after N seconds, waiting for running captures
             if (exitAfter > 0)
             {
                 var exitTimer = new System.Windows.Forms.Timer { Interval = exitAfter * 1000 };
@@ -187,7 +187,7 @@ namespace IntunePackageGrabber
                 {
                     if (activeJobs > 0) return;
                     exitTimer.Stop();
-                    Log("Uscita automatica (--exit-after).");
+                    Log("Automatic exit (--exit-after).");
                     Close();
                 };
                 exitTimer.Start();
@@ -198,17 +198,17 @@ namespace IntunePackageGrabber
 
             txtDest.Text = argDest ?? LoadSettings() ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "IntunePackages");
             SetListening(false);
-            Log("Scegli la cartella di archiviazione e premi Listen prima di avviare l'installazione.");
-            if (!HasIntuneWinAppUtil()) Log("IntuneWinAppUtil.exe non presente: premi \"Scarica IntuneWinAppUtil\" per generare anche il .intunewin, altrimenti verra' salvato solo il contenuto.");
+            Log("Choose the archive folder and press Listen before starting the installation.");
+            if (!HasIntuneWinAppUtil()) Log("IntuneWinAppUtil.exe not found: press \"Download IntuneWinAppUtil\" to also create the .intunewin, otherwise only the content will be saved.");
             UpdateDownloadButton();
             if (autoListen) Shown += delegate { StartListening(); };
         }
 
-        #region Interfaccia
+        #region UI
 
         void BuildUi()
         {
-            // Layout progettato a 96 DPI: WinForms lo scala automaticamente al DPI dello schermo
+            // Layout designed at 96 DPI: WinForms scales it automatically to the screen DPI
             SuspendLayout();
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
@@ -220,7 +220,7 @@ namespace IntunePackageGrabber
             StartPosition = FormStartPosition.CenterScreen;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-            // Intestazione
+            // Header
             var header = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = Accent };
             header.Paint += (s, e) =>
             {
@@ -228,26 +228,26 @@ namespace IntunePackageGrabber
                     e.Graphics.FillRectangle(brush, header.ClientRectangle);
             };
             var title = new Label { Text = "Intune Package Grabber", ForeColor = Color.White, BackColor = Color.Transparent, Font = new Font("Segoe UI Semibold", 15f), AutoSize = true, Location = new Point(20, 8) };
-            var subtitle = new Label { Text = "Cattura contenuto e .intunewin dei pacchetti Win32 durante l'installazione da Company Portal", ForeColor = Color.FromArgb(220, 235, 250), BackColor = Color.Transparent, AutoSize = true, Location = new Point(22, 46) };
+            var subtitle = new Label { Text = "Captures content and .intunewin of Win32 packages while they install from Company Portal", ForeColor = Color.FromArgb(220, 235, 250), BackColor = Color.Transparent, AutoSize = true, Location = new Point(22, 46) };
             header.Controls.Add(title);
             header.Controls.Add(subtitle);
 
-            // Impostazioni
+            // Settings
             var settings = new Panel { Dock = DockStyle.Top, Height = 104, Padding = new Padding(20, 0, 20, 0) };
-            // Dimensioni iniziali = dimensioni di progetto, cosi' gli Anchor mantengono i margini
+            // Initial size = design size, so the anchors keep the margins
             var card = MakeCard();
             card.Size = new Size(920, 104);
-            var lblDest = new Label { Text = "Cartella di archiviazione", Font = new Font("Segoe UI Semibold", 9.5f), AutoSize = true, Location = new Point(14, 10) };
+            var lblDest = new Label { Text = "Archive folder", Font = new Font("Segoe UI Semibold", 9.5f), AutoSize = true, Location = new Point(14, 10) };
             txtDest = new TextBox { Location = new Point(16, 36), Size = new Size(758, 25), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, Font = new Font("Segoe UI", 10f) };
-            btnBrowse = MakeButton("Sfoglia...", Color.White, Color.Black);
+            btnBrowse = MakeButton("Browse...", Color.White, Color.Black);
             btnBrowse.Location = new Point(784, 34);
             btnBrowse.Size = new Size(120, 30);
             btnBrowse.Font = new Font("Segoe UI", 9.5f);
             btnBrowse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnBrowse.Click += OnBrowse;
-            chkIntunewin = new CheckBox { Text = "Genera anche il file .intunewin (IntuneWinAppUtil, stesso file di setup della policy Intune)", Checked = true, AutoSize = true, Location = new Point(16, 72), ForeColor = TextMuted };
+            chkIntunewin = new CheckBox { Text = "Also create the .intunewin file (IntuneWinAppUtil, same setup file as the Intune policy)", Checked = true, AutoSize = true, Location = new Point(16, 72), ForeColor = TextMuted };
             chkIntunewin.CheckedChanged += delegate { UpdateDownloadButton(); };
-            btnDownload = MakeButton("↓  Scarica IntuneWinAppUtil", Accent, Color.White);
+            btnDownload = MakeButton("↓  Download IntuneWinAppUtil", Accent, Color.White);
             btnDownload.Location = new Point(704, 68);
             btnDownload.Size = new Size(200, 28);
             btnDownload.Font = new Font("Segoe UI Semibold", 9f);
@@ -261,7 +261,7 @@ namespace IntunePackageGrabber
             settingsWrap.Controls.Add(settings);
             settings.Dock = DockStyle.Fill;
 
-            // Azioni
+            // Actions
             var actions = new Panel { Dock = DockStyle.Top, Size = new Size(960, 64) };
             btnListen = MakeButton("\u25B6  Listen", GreenColor, Color.White);
             btnListen.Location = new Point(20, 14);
@@ -269,7 +269,7 @@ namespace IntunePackageGrabber
             btnStop = MakeButton("\u25A0  Stop", RedColor, Color.White);
             btnStop.Location = new Point(156, 14);
             btnStop.Click += delegate { StopListening(); };
-            btnOpen = MakeButton("Apri cartella", Color.White, Color.Black);
+            btnOpen = MakeButton("Open folder", Color.White, Color.Black);
             btnOpen.Location = new Point(292, 14);
             btnOpen.Size = new Size(140, 38);
             btnOpen.Click += delegate { OpenFolder(txtDest.Text); };
@@ -290,7 +290,7 @@ namespace IntunePackageGrabber
             };
             actions.Controls.AddRange(new Control[] { btnListen, btnStop, btnOpen, dot, lblStatus });
 
-            // Lista pacchetti + log
+            // Package list + log
             list = new ListView
             {
                 Dock = DockStyle.Fill,
@@ -300,15 +300,15 @@ namespace IntunePackageGrabber
                 BorderStyle = BorderStyle.None,
                 Font = new Font("Segoe UI", 9.5f)
             };
-            // Le colonne della ListView non vengono scalate da AutoScale: le scalo a mano
+            // ListView columns are not scaled by AutoScale: scale them manually
             float scale;
             using (var g = CreateGraphics()) scale = g.DpiX / 96f;
-            list.Columns.Add("Ora", (int)(70 * scale));
-            list.Columns.Add("Applicazione", (int)(250 * scale));
+            list.Columns.Add("Time", (int)(70 * scale));
+            list.Columns.Add("Application", (int)(250 * scale));
             list.Columns.Add("Ver.", (int)(45 * scale));
-            list.Columns.Add("Stato", (int)(190 * scale));
-            list.Columns.Add("Dimensione", (int)(90 * scale));
-            list.Columns.Add("Percorso", (int)(500 * scale));
+            list.Columns.Add("Status", (int)(190 * scale));
+            list.Columns.Add("Size", (int)(90 * scale));
+            list.Columns.Add("Path", (int)(500 * scale));
             list.DoubleClick += delegate
             {
                 if (list.SelectedItems.Count > 0) OpenFolder(list.SelectedItems[0].SubItems[ColPath].Text);
@@ -327,7 +327,7 @@ namespace IntunePackageGrabber
             };
 
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, BackColor = Surface, SplitterWidth = 12 };
-            split.Panel1.Controls.Add(WrapInCard(list, "Pacchetti catturati  (doppio clic per aprire)"));
+            split.Panel1.Controls.Add(WrapInCard(list, "Captured packages  (double-click to open)"));
             split.Panel2.Controls.Add(WrapInCard(txtLog, "Log"));
             var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 0, 20, 20) };
             body.Controls.Add(split);
@@ -396,7 +396,7 @@ namespace IntunePackageGrabber
             btnBrowse.Enabled = !value;
             chkIntunewin.Enabled = !value;
             dotColor = value ? GreenColor : Color.Gray;
-            lblStatus.Text = value ? "In ascolto  •  " + cacheRoot : "Fermo";
+            lblStatus.Text = value ? "Listening  •  " + cacheRoot : "Stopped";
             lblStatus.ForeColor = value ? GreenColor : TextMuted;
             dot.Invalidate();
         }
@@ -418,11 +418,11 @@ namespace IntunePackageGrabber
 
         #endregion
 
-        #region Eventi
+        #region Events
 
         void OnBrowse(object sender, EventArgs e)
         {
-            using (var dialog = new FolderBrowserDialog { Description = "Scegli dove archiviare i pacchetti", ShowNewFolderButton = true })
+            using (var dialog = new FolderBrowserDialog { Description = "Choose where to archive the packages", ShowNewFolderButton = true })
             {
                 if (Directory.Exists(txtDest.Text)) dialog.SelectedPath = txtDest.Text;
                 if (dialog.ShowDialog(this) == DialogResult.OK) txtDest.Text = dialog.SelectedPath;
@@ -431,42 +431,42 @@ namespace IntunePackageGrabber
 
         void UpdateDownloadButton()
         {
-            // Il pulsante serve solo se si vuole il .intunewin e IntuneWinAppUtil non e' disponibile
+            // The button is needed only when the .intunewin is wanted and IntuneWinAppUtil is not available
             btnDownload.Visible = chkIntunewin.Checked && !HasIntuneWinAppUtil();
         }
 
         async void OnDownloadIntuneWinAppUtil(object sender, EventArgs e)
         {
             btnDownload.Enabled = false;
-            btnDownload.Text = "Download in corso...";
+            btnDownload.Text = "Downloading...";
             string temp = Path.Combine(Path.GetTempPath(), "IntunePackageGrabber", Guid.NewGuid().ToString("N") + ".exe");
             try
             {
-                Log("Download di IntuneWinAppUtil.exe da " + IntuneWinAppUtilUrl);
+                Log("Downloading IntuneWinAppUtil.exe from " + IntuneWinAppUtilUrl);
                 Directory.CreateDirectory(Path.GetDirectoryName(temp));
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
                 using (var client = new WebClient()) await client.DownloadFileTaskAsync(IntuneWinAppUtilUrl, temp);
 
-                // Accetta solo un file con firma Authenticode valida di Microsoft
-                if (!Authenticode.IsValid(temp)) throw new Exception("firma digitale non valida");
+                // Accept only a file with a valid Microsoft Authenticode signature
+                if (!Authenticode.IsValid(temp)) throw new Exception("invalid digital signature");
                 string subject = X509Certificate.CreateFromSignedFile(temp).Subject;
-                if (subject.IndexOf("O=Microsoft Corporation", StringComparison.OrdinalIgnoreCase) < 0) throw new Exception("file non firmato da Microsoft (" + subject + ")");
+                if (subject.IndexOf("O=Microsoft Corporation", StringComparison.OrdinalIgnoreCase) < 0) throw new Exception("file not signed by Microsoft (" + subject + ")");
 
                 Directory.CreateDirectory(appDataDir);
                 string target = Path.Combine(appDataDir, "IntuneWinAppUtil.exe");
                 if (File.Exists(target)) File.Delete(target);
                 File.Move(temp, target);
-                Log("IntuneWinAppUtil.exe scaricato e verificato (firma Microsoft): " + target);
+                Log("IntuneWinAppUtil.exe downloaded and verified (Microsoft signature): " + target);
             }
             catch (Exception ex)
             {
-                Log("ERRORE download IntuneWinAppUtil.exe: " + ex.Message);
-                MessageBox.Show(this, "Download di IntuneWinAppUtil.exe non riuscito:\r\n" + ex.Message + "\r\n\r\nIn alternativa copialo accanto a IntunePackageGrabber.exe.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Log("ERROR downloading IntuneWinAppUtil.exe: " + ex.Message);
+                MessageBox.Show(this, "IntuneWinAppUtil.exe download failed:\r\n" + ex.Message + "\r\n\r\nAlternatively, copy it next to IntunePackageGrabber.exe.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             finally
             {
                 try { if (File.Exists(temp)) File.Delete(temp); } catch { }
-                btnDownload.Text = "↓  Scarica IntuneWinAppUtil";
+                btnDownload.Text = "↓  Download IntuneWinAppUtil";
                 btnDownload.Enabled = true;
                 UpdateDownloadButton();
             }
@@ -476,7 +476,7 @@ namespace IntunePackageGrabber
         {
             if (string.IsNullOrWhiteSpace(txtDest.Text))
             {
-                MessageBox.Show(this, "Scegli una cartella di archiviazione.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "Choose an archive folder.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             try
@@ -485,18 +485,18 @@ namespace IntunePackageGrabber
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Impossibile creare la cartella:\n" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "Unable to create the folder:\n" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             SaveSettings(txtDest.Text);
-            if (!Directory.Exists(cacheRoot)) Log(cacheRoot + " non esiste ancora: verra' monitorata appena IME la crea.");
+            if (!Directory.Exists(cacheRoot)) Log(cacheRoot + " does not exist yet: it will be watched as soon as IME creates it.");
 
-            // Le cartelle gia' presenti vengono trattate come nuove (di solito appartengono a un'installazione in corso),
-            // tranne quelle gia' catturate in questa sessione: escono da 'handled' solo quando IME le rimuove
+            // Folders already present are treated as new (they usually belong to an installation in progress),
+            // except those already captured in this session: they leave 'handled' only when IME removes them
             pending.Clear();
             timer.Start();
             SetListening(true);
-            Log("Listen avviato. Avvia ora l'installazione dal Company Portal.");
+            Log("Listen started. Now start the installation from Company Portal.");
         }
 
         void StopListening()
@@ -505,12 +505,12 @@ namespace IntunePackageGrabber
             pending.Clear();
             SetListening(false);
             Log("Stop.");
-            if (activeJobs > 0) Log("Attenzione: " + activeJobs + " cattura/e ancora in corso in background.");
+            if (activeJobs > 0) Log("Warning: " + activeJobs + " capture(s) still running in the background.");
         }
 
         void OnFormClosing(object sender, FormClosingEventArgs e)
         {
-            if (activeJobs > 0 && MessageBox.Show(this, "Ci sono catture in corso. Chiudere comunque?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
+            if (activeJobs > 0 && MessageBox.Show(this, "Captures are still running. Close anyway?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.No)
             {
                 e.Cancel = true;
                 return;
@@ -527,30 +527,30 @@ namespace IntunePackageGrabber
             }
             catch (Exception ex)
             {
-                Log("Impossibile leggere " + cacheRoot + ": " + ex.Message);
+                Log("Unable to read " + cacheRoot + ": " + ex.Message);
                 StopListening();
                 return;
             }
 
-            // Una cartella gia' catturata che IME ha rimosso puo' essere ricatturata se ricompare (retry/reinstallazione)
+            // A captured folder that IME removed can be captured again if it reappears (retry/reinstall)
             handled.RemoveWhere(d => !Directory.Exists(d));
 
-            // Solo cartelle delle app (<GUID>_<versione>), esclude HealthScripts ecc.
+            // App folders only (<GUID>_<version>), excludes HealthScripts etc.
             foreach (var dir in dirs)
             {
                 if (!Regex.IsMatch(Path.GetFileName(dir), @"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) continue;
                 if (handled.Contains(dir) || pending.ContainsKey(dir)) continue;
                 pending[dir] = new PendingFolder { Snapshot = null, Since = DateTime.Now };
-                Log("Rilevato pacchetto " + Path.GetFileName(dir) + ", attendo la fine dell'estrazione...");
+                Log("Package detected: " + Path.GetFileName(dir) + ", waiting for extraction to finish...");
             }
 
-            // Cattura quando il contenuto resta invariato per StableSeconds
+            // Capture once the content stays unchanged for StableSeconds
             foreach (var dir in pending.Keys.ToList())
             {
                 var entry = pending[dir];
                 if (!Directory.Exists(dir))
                 {
-                    Log("Cartella rimossa da IME prima della copia: " + Path.GetFileName(dir));
+                    Log("Folder removed by IME before the copy: " + Path.GetFileName(dir));
                     pending.Remove(dir);
                     continue;
                 }
@@ -563,7 +563,7 @@ namespace IntunePackageGrabber
                 }
                 if (snapshot.Length > 0 && (DateTime.Now - entry.Since).TotalSeconds >= StableSeconds)
                 {
-                    // Dimensioni invariate non bastano: NTFS puo' riportare dimensioni vecchie per un file ancora in scrittura
+                    // Unchanged sizes are not enough: NTFS can report stale sizes for a file still being written
                     if (!AllFilesReadable(dir))
                     {
                         entry.Since = DateTime.Now;
@@ -578,14 +578,14 @@ namespace IntunePackageGrabber
 
         #endregion
 
-        #region Cattura
+        #region Capture
 
         void StartCapture(string source)
         {
             string folderName = Path.GetFileName(source);
             string appId = folderName.Split('_')[0];
             string version = folderName.Contains("_") ? folderName.Substring(folderName.IndexOf('_') + 1) : "";
-            var item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), appId, version, "Copia in corso...", "", "" });
+            var item = new ListViewItem(new[] { DateTime.Now.ToString("HH:mm:ss"), appId, version, "Copying...", "", "" });
             item.UseItemStyleForSubItems = false;
             item.SubItems[ColStatus].ForeColor = Accent;
             list.Items.Insert(0, item);
@@ -598,7 +598,7 @@ namespace IntunePackageGrabber
 
         static readonly object destLock = new object();
 
-        // Cartella di destinazione univoca anche per catture parallele della stessa app
+        // Unique destination folder, also for parallel captures of the same app
         static string CreateUniqueDest(string destRoot, string baseName)
         {
             lock (destLock)
@@ -612,20 +612,20 @@ namespace IntunePackageGrabber
 
         void CapturePackage(string source, string appId, string version, string destRoot, bool makeIntunewin, ListViewItem item)
         {
-            // Copia prima in una cartella temporanea dal percorso corto: IntuneWinAppUtil non gestisce percorsi oltre 260 caratteri
+            // Copy to a short temporary path first: IntuneWinAppUtil does not handle paths over 260 characters
             string staging = Path.Combine(Path.GetTempPath(), "IPG", Guid.NewGuid().ToString("N").Substring(0, 8));
             try
             {
                 AppPolicy policy = FindPolicy(appId);
                 string label = policy != null && !string.IsNullOrEmpty(policy.Name) ? SafeName(policy.Name) : appId;
-                UpdateItem(item, ColApp, policy != null ? policy.Name : appId + " (nome non trovato nei log IME)");
+                UpdateItem(item, ColApp, policy != null ? policy.Name : appId + " (name not found in IME logs)");
 
                 string baseName = label + (version.Length > 0 ? "_v" + version : "") + "_" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
                 string dest = CreateUniqueDest(destRoot, baseName);
                 UpdateItem(item, ColPath, dest);
-                Log("Cattura di " + label + " in " + dest);
+                Log("Capturing " + label + " to " + dest);
 
-                // Copia e verifica del contenuto
+                // Copy and verify the content
                 string stagedContent = Path.Combine(staging, "Content");
                 long sourceBytes; int sourceFiles;
                 Measure(source, out sourceFiles, out sourceBytes);
@@ -633,13 +633,13 @@ namespace IntunePackageGrabber
                 long copiedBytes; int copiedFiles;
                 Measure(stagedContent, out copiedFiles, out copiedBytes);
                 if (copiedFiles != sourceFiles || copiedBytes != sourceBytes)
-                    throw new Exception(string.Format("contenuto incompleto: {0} file / {1} byte copiati su {2} / {3}", copiedFiles, copiedBytes, sourceFiles, sourceBytes));
+                    throw new Exception(string.Format("incomplete content: {0} files / {1} bytes copied of {2} / {3}", copiedFiles, copiedBytes, sourceFiles, sourceBytes));
                 UpdateItem(item, ColSize, FormatSize(copiedBytes));
 
                 string setup = null, intunewin = null;
                 if (makeIntunewin)
                 {
-                    UpdateItem(item, ColStatus, "Creazione .intunewin...");
+                    UpdateItem(item, ColStatus, "Creating .intunewin...");
                     setup = policy != null && !string.IsNullOrEmpty(policy.SetupFile) ? policy.SetupFile : GuessSetupFile(stagedContent);
                     if (setup != null)
                     {
@@ -648,36 +648,36 @@ namespace IntunePackageGrabber
                     }
                 }
 
-                // Sposta tutto nella destinazione finale e riverifica
+                // Move everything to the final destination and verify again
                 string content = Path.Combine(dest, "Content");
                 MoveDirectory(stagedContent, content);
                 Measure(content, out copiedFiles, out copiedBytes);
                 if (copiedFiles != sourceFiles || copiedBytes != sourceBytes)
-                    throw new Exception(string.Format("contenuto incompleto nella destinazione: {0} file / {1} byte su {2} / {3}", copiedFiles, copiedBytes, sourceFiles, sourceBytes));
-                Log(string.Format("Contenuto copiato e verificato: {0} file, {1}", copiedFiles, FormatSize(copiedBytes)));
+                    throw new Exception(string.Format("incomplete content at destination: {0} files / {1} bytes of {2} / {3}", copiedFiles, copiedBytes, sourceFiles, sourceBytes));
+                Log(string.Format("Content copied and verified: {0} files, {1}", copiedFiles, FormatSize(copiedBytes)));
                 WriteInfo(dest, policy, appId, source, copiedFiles, copiedBytes);
 
                 if (intunewin != null)
                 {
                     string finalIntunewin = Path.Combine(dest, Path.GetFileName(intunewin));
                     File.Move(LongPath(intunewin), LongPath(finalIntunewin));
-                    Log(".intunewin creato e verificato: " + finalIntunewin + " (setup: " + setup + ")");
-                    UpdateItem(item, ColStatus, "\u2714 Contenuto + .intunewin", GreenColor);
+                    Log(".intunewin created and verified: " + finalIntunewin + " (setup: " + setup + ")");
+                    UpdateItem(item, ColStatus, "\u2714 Content + .intunewin", GreenColor);
                 }
                 else if (makeIntunewin)
                 {
-                    Log("ATTENZIONE (" + appId + "): file di setup non determinato, .intunewin non creato. Il contenuto e' stato salvato.");
-                    UpdateItem(item, ColStatus, "\u26A0 Solo contenuto (setup ignoto)", OrangeColor);
+                    Log("WARNING (" + appId + "): setup file not determined, .intunewin not created. The content has been saved.");
+                    UpdateItem(item, ColStatus, "\u26A0 Content only (unknown setup)", OrangeColor);
                 }
                 else
                 {
-                    UpdateItem(item, ColStatus, "\u2714 Contenuto", GreenColor);
+                    UpdateItem(item, ColStatus, "\u2714 Content", GreenColor);
                 }
             }
             catch (Exception ex)
             {
-                UpdateItem(item, ColStatus, "\u2716 Errore", RedColor);
-                Log("ERRORE (" + appId + "): " + ex.Message);
+                UpdateItem(item, ColStatus, "\u2716 Error", RedColor);
+                Log("ERROR (" + appId + "): " + ex.Message);
             }
             finally
             {
@@ -686,7 +686,7 @@ namespace IntunePackageGrabber
             }
         }
 
-        // Prefisso \\?\ per superare il limite di 260 caratteri senza dipendere da LongPathsEnabled
+        // \\?\ prefix to bypass the 260-character limit without relying on LongPathsEnabled
         static string LongPath(string path)
         {
             if (path.StartsWith(@"\\?\")) return path;
@@ -725,7 +725,7 @@ namespace IntunePackageGrabber
             bytes = all.Sum(f => f.Length);
         }
 
-        // False se un file e' ancora aperto in scrittura (FileShare.Read nega l'apertura in presenza di un writer)
+        // False if a file is still open for writing (FileShare.Read denies the open while a writer exists)
         static bool AllFilesReadable(string path)
         {
             try
@@ -786,7 +786,7 @@ namespace IntunePackageGrabber
 
         static string GetIntuneWinAppUtilPath()
         {
-            // 1) accanto all'exe, 2) scaricato in %APPDATA%, 3) incorporato come risorsa ed estratto in %TEMP%
+            // 1) next to the exe, 2) downloaded to %APPDATA%, 3) embedded as a resource and extracted to %TEMP%
             string beside = BesideExe("IntuneWinAppUtil.exe");
             if (File.Exists(beside)) return beside;
             if (File.Exists(DownloadedTool())) return DownloadedTool();
@@ -807,7 +807,7 @@ namespace IntunePackageGrabber
         string BuildIntunewin(string content, string setupFile, string dest, string label)
         {
             string tool = GetIntuneWinAppUtilPath();
-            if (!File.Exists(tool)) throw new Exception("IntuneWinAppUtil.exe non disponibile");
+            if (!File.Exists(tool)) throw new Exception("IntuneWinAppUtil.exe not available");
 
             string buildDir = Path.Combine(dest, "_build");
             Directory.CreateDirectory(buildDir);
@@ -827,7 +827,7 @@ namespace IntunePackageGrabber
             }
 
             string built = Directory.GetFiles(buildDir, "*.intunewin").FirstOrDefault();
-            if (built == null) throw new Exception("IntuneWinAppUtil non ha prodotto il file .intunewin:\r\n" + output.Trim());
+            if (built == null) throw new Exception("IntuneWinAppUtil did not produce the .intunewin file:\r\n" + output.Trim());
 
             string final = Path.Combine(dest, label + ".intunewin");
             if (File.Exists(final)) File.Delete(final);
@@ -842,20 +842,20 @@ namespace IntunePackageGrabber
             {
                 var detection = zip.GetEntry("IntuneWinPackage/Metadata/Detection.xml");
                 var payload = zip.GetEntry("IntuneWinPackage/Contents/IntunePackage.intunewin");
-                if (detection == null || payload == null) throw new Exception(".intunewin non valido: struttura interna mancante");
-                if (payload.Length == 0) throw new Exception(".intunewin non valido: contenuto vuoto");
+                if (detection == null || payload == null) throw new Exception("invalid .intunewin: internal structure missing");
+                if (payload.Length == 0) throw new Exception("invalid .intunewin: empty content");
 
                 var xml = new XmlDocument();
                 using (var s = detection.Open()) xml.Load(s);
                 var setupNode = xml.SelectSingleNode("//*[local-name()='SetupFile']");
                 if (setupNode == null || !string.Equals(setupNode.InnerText, expectedSetup, StringComparison.OrdinalIgnoreCase))
-                    throw new Exception(".intunewin non valido: SetupFile = " + (setupNode == null ? "(assente)" : setupNode.InnerText) + ", atteso " + expectedSetup);
+                    throw new Exception("invalid .intunewin: SetupFile = " + (setupNode == null ? "(missing)" : setupNode.InnerText) + ", expected " + expectedSetup);
             }
         }
 
         #endregion
 
-        #region Policy dai log IME
+        #region Policy from IME logs
 
         static AppPolicy FindPolicy(string appId)
         {
@@ -877,7 +877,7 @@ namespace IntunePackageGrabber
                     continue;
                 }
 
-                // Dalla policy piu' recente alla piu' vecchia
+                // From the newest policy to the oldest
                 int idx = text.LastIndexOf(marker, StringComparison.Ordinal);
                 while (idx >= 0)
                 {
@@ -935,22 +935,22 @@ namespace IntunePackageGrabber
         static void WriteInfo(string dest, AppPolicy policy, string appId, string source, int files, long bytes)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Nome app            : " + (policy != null ? policy.Name : "(non trovato nei log IME)"));
+            sb.AppendLine("App name            : " + (policy != null ? policy.Name : "(not found in IME logs)"));
             sb.AppendLine("App ID              : " + appId);
-            sb.AppendLine("Versione contenuto  : " + (policy != null ? policy.Version : ""));
-            sb.AppendLine("Sorgente            : " + source);
-            sb.AppendLine("Catturato           : " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " su " + Environment.MachineName);
-            sb.AppendLine("Contenuto           : " + files + " file, " + FormatSize(bytes));
+            sb.AppendLine("Content version     : " + (policy != null ? policy.Version : ""));
+            sb.AppendLine("Source              : " + source);
+            sb.AppendLine("Captured            : " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " on " + Environment.MachineName);
+            sb.AppendLine("Content             : " + files + " files, " + FormatSize(bytes));
             if (policy != null)
             {
                 sb.AppendLine();
-                sb.AppendLine("File di setup       : " + policy.SetupFile);
-                sb.AppendLine("Comando install     : " + policy.InstallCommand);
-                sb.AppendLine("Comando uninstall   : " + policy.UninstallCommand);
+                sb.AppendLine("Setup file          : " + policy.SetupFile);
+                sb.AppendLine("Install command     : " + policy.InstallCommand);
+                sb.AppendLine("Uninstall command   : " + policy.UninstallCommand);
                 sb.AppendLine();
-                sb.AppendLine("Regola rilevamento  : " + policy.DetectionRule);
-                sb.AppendLine("Requisiti           : " + policy.RequirementRules);
-                sb.AppendLine("Codici di ritorno   : " + policy.ReturnCodes);
+                sb.AppendLine("Detection rule      : " + policy.DetectionRule);
+                sb.AppendLine("Requirements        : " + policy.RequirementRules);
+                sb.AppendLine("Return codes        : " + policy.ReturnCodes);
                 File.WriteAllText(LongPath(Path.Combine(dest, "policy.json")), policy.RawJson, Encoding.UTF8);
             }
             File.WriteAllText(LongPath(Path.Combine(dest, "app-info.txt")), sb.ToString(), Encoding.UTF8);
@@ -958,7 +958,7 @@ namespace IntunePackageGrabber
 
         #endregion
 
-        #region Utilita'
+        #region Utilities
 
         static string SafeName(string name)
         {
@@ -968,9 +968,10 @@ namespace IntunePackageGrabber
 
         static string FormatSize(long bytes)
         {
-            if (bytes >= 1L << 30) return (bytes / (double)(1L << 30)).ToString("N2") + " GB";
-            if (bytes >= 1L << 20) return (bytes / (double)(1L << 20)).ToString("N1") + " MB";
-            return (bytes / 1024.0).ToString("N0") + " KB";
+            var c = System.Globalization.CultureInfo.InvariantCulture;
+            if (bytes >= 1L << 30) return (bytes / (double)(1L << 30)).ToString("N2", c) + " GB";
+            if (bytes >= 1L << 20) return (bytes / (double)(1L << 20)).ToString("N1", c) + " MB";
+            return (bytes / 1024.0).ToString("N0", c) + " KB";
         }
 
         static void OpenFolder(string path)
