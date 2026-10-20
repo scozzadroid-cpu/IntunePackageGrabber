@@ -10,7 +10,15 @@ $KnownAppId = '11111111-2222-3333-4444-555555555555'
 $KnownAppName = 'Contoso Test App'
 $imeLogs = Join-Path $Work 'ime-logs'
 New-Item -ItemType Directory $imeLogs -Force | Out-Null
-$policy = "[{`"Id`":`"$KnownAppId`",`"Name`":`"$KnownAppName`",`"Version`":1,`"InstallCommandLine`":`"powershell.exe -ExecutionPolicy Bypass -File install.ps1`",`"SetUpFilePath`":`"install.ps1`"}]"
+$detection = ConvertTo-Json -Compress @(
+    @{ DetectionType = 1; DetectionText = (ConvertTo-Json -Compress @{ ProductCode = '{AAAAAAAA-0000-0000-0000-000000000001}'; ProductVersion = '1.2'; ProductVersionOperator = 5 }) },
+    @{ DetectionType = 3; DetectionText = (ConvertTo-Json -Compress @{ EnforceSignatureCheck = 0; RunAs32Bit = 0; ScriptBody = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('exit 0')) }) }
+)
+$policy = '[' + (ConvertTo-Json -Compress @{
+    Id = $KnownAppId; Name = $KnownAppName; Version = 1; SetUpFilePath = 'install.ps1'
+    InstallCommandLine = 'powershell.exe -ExecutionPolicy Bypass -File install.ps1'
+    DetectionRule = $detection; ReturnCodes = '[{"ReturnCode":0,"Type":1},{"ReturnCode":3010,"Type":2}]'
+}) + ']'
 Set-Content -LiteralPath (Join-Path $imeLogs 'AppWorkload.log') -Encoding UTF8 -Value "<![LOG[Get policies = $policy]LOG]!><time=`"00:00:00.000`" date=`"1-1-2026`" component=`"AppWorkload`">"
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 $results = New-Object System.Collections.Generic.List[object]
@@ -106,6 +114,9 @@ if ($cap.Count -ge 1) {
     Assert $s.Name 'Valid .intunewin with the policy SetupFile (install.ps1)' ($iw -and (Test-Intunewin $iw.FullName 'install.ps1'))
     Assert $s.Name 'App name from the IME policy' ($cap[0].Name -like "$KnownAppName`_v1_*") $cap[0].Name
     Assert $s.Name 'app-info.txt and policy.json' ((Test-Path -LiteralPath "$($cap[0].FullName)\app-info.txt") -and (Test-Path -LiteralPath "$($cap[0].FullName)\policy.json"))
+    $info = Get-Content -LiteralPath "$($cap[0].FullName)\app-info.txt" -Raw
+    Assert $s.Name 'Decoded detection rules and return codes' (($info -match 'MSI \{AAAAAAAA-0000-0000-0000-000000000001\} version >= 1\.2') -and ($info -match 'Return codes\s+: 0 success, 3010 soft reboot'))
+    Assert $s.Name 'Detection script saved' ((Get-Content -LiteralPath "$($cap[0].FullName)\detection.ps1" -Raw -ErrorAction SilentlyContinue) -eq 'exit 0')
 }
 
 # ---------------------------------------------------------------------------------------------

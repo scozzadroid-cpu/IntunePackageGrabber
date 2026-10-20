@@ -26,8 +26,8 @@ using System.Xml;
 
 [assembly: AssemblyTitle("Intune Package Grabber")]
 [assembly: AssemblyProduct("Intune Package Grabber")]
-[assembly: AssemblyVersion("2.0.0.0")]
-[assembly: AssemblyFileVersion("2.0.0.0")]
+[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyFileVersion("2.1.0.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName = ".NET Framework 4.8")]
 
 namespace IntunePackageGrabber
@@ -150,7 +150,7 @@ namespace IntunePackageGrabber
         readonly HashSet<string> handled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
         int activeJobs;
-        bool listening;
+        bool listening, scanning;
         Color dotColor = Color.Gray;
 
         TextBox txtDest;
@@ -493,7 +493,7 @@ namespace IntunePackageGrabber
 
             // Folders already present are treated as new (they usually belong to an installation in progress),
             // except those already captured in this session: they leave 'handled' only when IME removes them
-            pending.Clear();
+            lock (pending) pending.Clear();
             timer.Start();
             SetListening(true);
             Log("Listen started. Now start the installation from Company Portal.");
@@ -502,7 +502,7 @@ namespace IntunePackageGrabber
         void StopListening()
         {
             timer.Stop();
-            pending.Clear();
+            lock (pending) pending.Clear();
             SetListening(false);
             Log("Stop.");
             if (activeJobs > 0) Log("Warning: " + activeJobs + " capture(s) still running in the background.");
@@ -518,62 +518,82 @@ namespace IntunePackageGrabber
             timer.Stop();
         }
 
-        void OnTick(object sender, EventArgs e)
+        // The scan runs in the background so large packages do not freeze the UI
+        async void OnTick(object sender, EventArgs e)
         {
-            string[] dirs;
+            if (scanning) return;
+            scanning = true;
             try
             {
-                dirs = Directory.Exists(cacheRoot) ? Directory.GetDirectories(cacheRoot) : new string[0];
+                var ready = await Task.Run(() => Scan());
+                foreach (var dir in ready)
+                {
+                    if (listening) StartCapture(dir);
+                    else lock (pending) handled.Remove(dir);
+                }
             }
             catch (Exception ex)
             {
                 Log("Unable to read " + cacheRoot + ": " + ex.Message);
-                StopListening();
-                return;
+                if (listening) StopListening();
             }
-
-            // A captured folder that IME removed can be captured again if it reappears (retry/reinstall)
-            handled.RemoveWhere(d => !Directory.Exists(d));
-
-            // App folders only (<GUID>_<version>), excludes HealthScripts etc.
-            foreach (var dir in dirs)
+            finally
             {
-                if (!Regex.IsMatch(Path.GetFileName(dir), @"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) continue;
-                if (handled.Contains(dir) || pending.ContainsKey(dir)) continue;
-                pending[dir] = new PendingFolder { Snapshot = null, Since = DateTime.Now };
-                Log("Package detected: " + Path.GetFileName(dir) + ", waiting for extraction to finish...");
+                scanning = false;
             }
+        }
 
-            // Capture once the content stays unchanged for StableSeconds
-            foreach (var dir in pending.Keys.ToList())
+        // Returns the folders ready to be captured
+        List<string> Scan()
+        {
+            var ready = new List<string>();
+            string[] dirs = Directory.Exists(cacheRoot) ? Directory.GetDirectories(cacheRoot) : new string[0];
+            lock (pending)
             {
-                var entry = pending[dir];
-                if (!Directory.Exists(dir))
+                // A captured folder that IME removed can be captured again if it reappears (retry/reinstall)
+                handled.RemoveWhere(d => !Directory.Exists(d));
+
+                // App folders only (<GUID>_<version>), excludes HealthScripts etc.
+                foreach (var dir in dirs)
                 {
-                    Log("Folder removed by IME before the copy: " + Path.GetFileName(dir));
-                    pending.Remove(dir);
-                    continue;
+                    if (!Regex.IsMatch(Path.GetFileName(dir), @"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) continue;
+                    if (handled.Contains(dir) || pending.ContainsKey(dir)) continue;
+                    pending[dir] = new PendingFolder { Snapshot = null, Since = DateTime.Now };
+                    Log("Package detected: " + Path.GetFileName(dir) + ", waiting for extraction to finish...");
                 }
-                string snapshot = GetSnapshot(dir);
-                if (snapshot != entry.Snapshot)
+
+                // Capture once the content stays unchanged for StableSeconds
+                foreach (var dir in pending.Keys.ToList())
                 {
-                    entry.Snapshot = snapshot;
-                    entry.Since = DateTime.Now;
-                    continue;
-                }
-                if (snapshot.Length > 0 && (DateTime.Now - entry.Since).TotalSeconds >= StableSeconds)
-                {
-                    // Unchanged sizes are not enough: NTFS can report stale sizes for a file still being written
-                    if (!AllFilesReadable(dir))
+                    var entry = pending[dir];
+                    if (!Directory.Exists(dir))
                     {
+                        Log("Folder removed by IME before the copy: " + Path.GetFileName(dir));
+                        pending.Remove(dir);
+                        continue;
+                    }
+                    string snapshot = GetSnapshot(dir);
+                    if (snapshot != entry.Snapshot)
+                    {
+                        entry.Snapshot = snapshot;
                         entry.Since = DateTime.Now;
                         continue;
                     }
-                    pending.Remove(dir);
-                    handled.Add(dir);
-                    StartCapture(dir);
+                    if (snapshot.Length > 0 && (DateTime.Now - entry.Since).TotalSeconds >= StableSeconds)
+                    {
+                        // Unchanged sizes are not enough: NTFS can report stale sizes for a file still being written
+                        if (!AllFilesReadable(dir))
+                        {
+                            entry.Since = DateTime.Now;
+                            continue;
+                        }
+                        pending.Remove(dir);
+                        handled.Add(dir);
+                        ready.Add(dir);
+                    }
                 }
             }
+            return ready;
         }
 
         #endregion
@@ -636,15 +656,24 @@ namespace IntunePackageGrabber
                     throw new Exception(string.Format("incomplete content: {0} files / {1} bytes copied of {2} / {3}", copiedFiles, copiedBytes, sourceFiles, sourceBytes));
                 UpdateItem(item, ColSize, FormatSize(copiedBytes));
 
-                string setup = null, intunewin = null;
+                string setup = null, intunewin = null, intunewinError = null;
                 if (makeIntunewin)
                 {
                     UpdateItem(item, ColStatus, "Creating .intunewin...");
                     setup = policy != null && !string.IsNullOrEmpty(policy.SetupFile) ? policy.SetupFile : GuessSetupFile(stagedContent);
                     if (setup != null)
                     {
-                        intunewin = BuildIntunewin(stagedContent, setup, staging, label);
-                        VerifyIntunewin(intunewin, setup);
+                        // A failed .intunewin must not lose the content: it is saved anyway
+                        try
+                        {
+                            intunewin = BuildIntunewin(stagedContent, setup, staging, label);
+                            VerifyIntunewin(intunewin, setup);
+                        }
+                        catch (Exception ex)
+                        {
+                            intunewin = null;
+                            intunewinError = ex.Message;
+                        }
                     }
                 }
 
@@ -663,6 +692,11 @@ namespace IntunePackageGrabber
                     File.Move(LongPath(intunewin), LongPath(finalIntunewin));
                     Log(".intunewin created and verified: " + finalIntunewin + " (setup: " + setup + ")");
                     UpdateItem(item, ColStatus, "\u2714 Content + .intunewin", GreenColor);
+                }
+                else if (intunewinError != null)
+                {
+                    Log("WARNING (" + appId + "): .intunewin not created (" + intunewinError.Trim() + "). The content has been saved.");
+                    UpdateItem(item, ColStatus, "⚠ Content only (.intunewin failed)", OrangeColor);
                 }
                 else if (makeIntunewin)
                 {
@@ -932,6 +966,104 @@ namespace IntunePackageGrabber
             return d.TryGetValue(key, out v) && v != null ? Convert.ToString(v) : null;
         }
 
+        static int Int(Dictionary<string, object> d, string key)
+        {
+            object v;
+            if (!d.TryGetValue(key, out v) || v == null) return 0;
+            if (v is bool) return (bool)v ? 1 : 0;
+            int n;
+            return int.TryParse(Convert.ToString(v), out n) ? n : 0;
+        }
+
+        // Enum values as in Microsoft Graph (win32LobAppRuleOperator, ...RegistryRuleOperationType, ...FileSystemOperationType)
+        static string Operator(int op)
+        {
+            switch (op)
+            {
+                case 1: return "=";
+                case 2: return "!=";
+                case 4: return ">";
+                case 5: return ">=";
+                case 8: return "<";
+                case 9: return "<=";
+                default: return "";
+            }
+        }
+
+        static readonly string[] RegistryChecks = { "", "exists", "does not exist", "string", "integer", "version" };
+        static readonly string[] FileChecks = { "", "exists", "modified date", "created date", "version", "size in MB", "does not exist" };
+
+        static string Check(string[] names, Dictionary<string, object> t)
+        {
+            int type = Int(t, "DetectionType");
+            string name = type < names.Length ? names[type] : "type " + type;
+            if (name == "exists" || name == "does not exist" || name == "") return name;
+            return name + " " + Operator(Int(t, "Operator")) + " " + Str(t, "DetectionValue");
+        }
+
+        // Readable detection rules; a script rule is returned decoded in 'script'
+        static List<string> DescribeDetection(string json, out byte[] script)
+        {
+            script = null;
+            var result = new List<string>();
+            if (string.IsNullOrEmpty(json)) return result;
+            try
+            {
+                var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+                foreach (var r in ((object[])serializer.DeserializeObject(json)).OfType<Dictionary<string, object>>())
+                {
+                    var t = serializer.DeserializeObject(Str(r, "DetectionText") ?? "{}") as Dictionary<string, object> ?? new Dictionary<string, object>();
+                    string bits = Int(t, "Check32BitOn64System") == 1 ? " (32-bit on 64-bit)" : "";
+                    switch (Int(r, "DetectionType"))
+                    {
+                        case 0:
+                            string value = string.IsNullOrEmpty(Str(t, "KeyName")) ? "" : ", value " + Str(t, "KeyName");
+                            result.Add("Registry " + Str(t, "Path") + value + " " + Check(RegistryChecks, t) + bits);
+                            break;
+                        case 1:
+                            string version = Int(t, "ProductVersionOperator") > 0 ? " version " + Operator(Int(t, "ProductVersionOperator")) + " " + Str(t, "ProductVersion") : "";
+                            result.Add("MSI " + Str(t, "ProductCode") + version);
+                            break;
+                        case 2:
+                            result.Add("File " + Path.Combine(Str(t, "Path") ?? "", Str(t, "FileOrFolderName") ?? "") + " " + Check(FileChecks, t) + bits);
+                            break;
+                        case 3:
+                            script = Convert.FromBase64String(Str(t, "ScriptBody") ?? "");
+                            result.Add("Script, saved as detection.ps1" + (Int(t, "RunAs32Bit") == 1 ? " (32-bit)" : ""));
+                            break;
+                        default:
+                            result.Add(Str(r, "DetectionText"));
+                            break;
+                    }
+                }
+            }
+            catch
+            {
+                result.Add("(not decoded, see raw rule)");
+            }
+            return result;
+        }
+
+        static readonly string[] ReturnCodeTypes = { "failed", "success", "soft reboot", "hard reboot", "retry" };
+
+        static string DescribeReturnCodes(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return "";
+            try
+            {
+                var codes = ((object[])new JavaScriptSerializer().DeserializeObject(json)).OfType<Dictionary<string, object>>();
+                return string.Join(", ", codes.Select(c =>
+                {
+                    int type = Int(c, "Type");
+                    return Str(c, "ReturnCode") + " " + (type < ReturnCodeTypes.Length ? ReturnCodeTypes[type] : "type " + type);
+                }));
+            }
+            catch
+            {
+                return json;
+            }
+        }
+
         static void WriteInfo(string dest, AppPolicy policy, string appId, string source, int files, long bytes)
         {
             var sb = new StringBuilder();
@@ -948,9 +1080,14 @@ namespace IntunePackageGrabber
                 sb.AppendLine("Install command     : " + policy.InstallCommand);
                 sb.AppendLine("Uninstall command   : " + policy.UninstallCommand);
                 sb.AppendLine();
-                sb.AppendLine("Detection rule      : " + policy.DetectionRule);
+                byte[] script;
+                foreach (var rule in DescribeDetection(policy.DetectionRule, out script))
+                    sb.AppendLine("Detection rule      : " + rule);
+                if (script != null) File.WriteAllBytes(LongPath(Path.Combine(dest, "detection.ps1")), script);
+                sb.AppendLine("Return codes        : " + DescribeReturnCodes(policy.ReturnCodes));
                 sb.AppendLine("Requirements        : " + policy.RequirementRules);
-                sb.AppendLine("Return codes        : " + policy.ReturnCodes);
+                sb.AppendLine();
+                sb.AppendLine("Raw detection rule  : " + policy.DetectionRule);
                 File.WriteAllText(LongPath(Path.Combine(dest, "policy.json")), policy.RawJson, Encoding.UTF8);
             }
             File.WriteAllText(LongPath(Path.Combine(dest, "app-info.txt")), sb.ToString(), Encoding.UTF8);

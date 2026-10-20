@@ -6,11 +6,14 @@ IME extracts the content to `C:\Windows\IMECache\<AppId>_<version>` and deletes 
 
 - `Content\` - verified copy (file count and bytes) of the extracted content
 - `<App name>.intunewin` - rebuilt with IntuneWinAppUtil, using the setup file from the IME policy
-- `app-info.txt` and `policy.json` - name, version, install/uninstall commands, detection rule and return codes read from `AppWorkload.log`
+- `app-info.txt` and `policy.json` - name, version, install/uninstall commands, requirements, detection rules (decoded: MSI, file, registry, script) and return codes read from `AppWorkload.log`
+- `detection.ps1` - the detection script, when the app uses one
+
+If the `.intunewin` cannot be created, the content is saved anyway.
 
 ![Intune Package Grabber listening, with one captured package](docs/main.png)
 
-The original `.intunewin` cannot be recovered (IME downloads it encrypted with a key protected by the device certificate): the saved file is an equivalent package rebuilt from the content.
+The saved `.intunewin` is rebuilt from the content: it installs the same files, but it is not byte-identical to the original one uploaded to Intune (it is encrypted with new keys).
 
 ## Download
 
@@ -53,4 +56,4 @@ Uses the C# compiler of .NET Framework included in Windows, no SDK required.
 powershell -ExecutionPolicy Bypass -File src\test.ps1 -Work C:\temp\IPG-tests -Exe .\IntunePackageGrabber.exe
 ```
 
-Simulates IME on a fake cache and `AppWorkload.log`: progressive extraction with files still open for writing, parallel packages, folders removed during the copy, retries, paths over 260 characters, unknown setup file, Listen/Stop buttons.
+Simulates IME on a fake cache and `AppWorkload.log`: progressive extraction with files still open for writing, parallel packages, folders removed during the copy, retries, paths over 260 characters, unknown setup file, detection rule decoding, Listen/Stop buttons.
