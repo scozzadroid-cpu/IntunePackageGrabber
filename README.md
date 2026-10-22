@@ -25,7 +25,7 @@ For technicians and Intune engineers, read-only, from the data IME keeps on the 
 
 Click a column header to sort. After every export and log collection the tool asks whether to open the folder.
 
-Each tab shows only its own controls: Listen, Stop and the `.intunewin` option are in the **Capture** tab, Refresh and Export selected in the diagnostics tabs; the archive folder, Open folder, Collect logs, Tutorial and About & credits are always available. Listen keeps working in the other tabs: the Capture title shows "listening" and the number of new packages.
+Each tab shows only its own controls: the archive folder, Listen, Stop and the `.intunewin` option are in the **Capture** tab, Refresh and Export selected in the diagnostics tabs; Collect logs, Tutorial and About & credits are always available. Exports and Collect logs use the archive folder chosen in the Capture tab. Listen keeps working in the other tabs: the Capture title shows "listening" and the number of new packages.
 
 ## IntuneWin Downloader
 

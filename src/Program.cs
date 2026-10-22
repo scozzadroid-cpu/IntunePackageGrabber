@@ -528,18 +528,16 @@ namespace IntunePackageGrabber
 
         void UpdateDownloadButton()
         {
-            // The button is needed only in the Capture tab, when the .intunewin is wanted and IntuneWinAppUtil is not available
-            btnDownload.Visible = (tabs == null || tabs.SelectedIndex == 0) && chkIntunewin.Checked && !HasIntuneWinAppUtil();
+            // The button is needed only when the .intunewin is wanted and IntuneWinAppUtil is not available
+            btnDownload.Visible = chkIntunewin.Checked && !HasIntuneWinAppUtil();
         }
 
-        // Shows only the controls that are useful in the selected tab
+        // Shows only the controls that are useful in the selected tab: the archive folder card belongs to Capture
+        // (exports and log collection use the same folder and show its path when they finish)
         void UpdateContext()
         {
             bool capture = tabs.SelectedIndex == 0;
-            chkIntunewin.Visible = capture;
-            // Without the .intunewin row the settings card is one row shorter
-            settingsWrap.Height = (int)((capture ? 120 : 88) * AutoScaleFactor.Height);
-            UpdateDownloadButton();
+            settingsWrap.Visible = capture;
             if (capture) newCaptures = 0;
             UpdateCaptureTitle();
             // Loaded on first view: reading the IME logs can take a few seconds

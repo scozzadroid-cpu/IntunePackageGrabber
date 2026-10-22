@@ -231,7 +231,7 @@ namespace IntunePackageGrabber
                     "Last enforcement: result of the last installation attempt.\n" +
                     "Error: IME error code in hexadecimal, to search on Microsoft Learn.\n\n" +
                     "Apps with errors are listed first, in red; apps without a name are at the end. Click a column header to sort, Refresh to read again.\n" +
-                    "Double-click an app for details, detection script and policy JSON. Export selected saves app-info.txt, policy.json and detection.ps1 in the archive folder.\n\n" +
+                    "Double-click an app for details, detection script and policy JSON. Export selected saves app-info.txt, policy.json and detection.ps1 in the archive folder chosen in the Capture tab.\n\n" +
                     "Apps without a name: their policy is no longer in the IME logs (old or removed assignments)."),
                 new KeyValuePair<string, string>("Remediations",
                     "Lists the remediations on this device (C:\\Windows\\IMECache\\HealthScripts) with their last result.\n\n" +
@@ -240,9 +240,9 @@ namespace IntunePackageGrabber
                     "Post-detection: detection after the remediation, Fixed or Issue remains.\n" +
                     "Error: IME error code in hexadecimal.\n\n" +
                     "The names of the remediations are not stored on the device: search the Policy ID in the Intune admin center (Devices > Scripts and remediations).\n" +
-                    "Double-click a row to read detect.ps1, remediate.ps1 and the output of the scripts. Export selected saves scripts and result in the archive folder."),
+                    "Double-click a row to read detect.ps1, remediate.ps1 and the output of the scripts. Export selected saves scripts and result in the archive folder chosen in the Capture tab."),
                 new KeyValuePair<string, string>("Collect logs",
-                    "Collect logs creates IntuneDiagnostics_<computer>_<date>.zip in the archive folder, ready to attach to a ticket:\n\n" +
+                    "Collect logs (next to the tabs) creates IntuneDiagnostics_<computer>_<date>.zip in the archive folder chosen in the Capture tab, ready to attach to a ticket:\n\n" +
                     "\u2022 IME and Company Portal logs\n" +
                     "\u2022 IME registry (app and remediation states)\n" +
                     "\u2022 MDM event log (DeviceManagement-Enterprise-Diagnostics-Provider/Admin)\n" +

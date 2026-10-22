@@ -465,7 +465,7 @@ foreach ($tab in 'Win32 apps', 'Remediations') {
     Click-Element $win $tab
     Assert $s.Name "${tab}: Listen, Stop and .intunewin option hidden" (-not (Find-Element $win '*Listen') -and -not (Find-Element $win '*Stop') -and -not (Find-Element $win 'Also create the .intunewin*'))
     Assert $s.Name "${tab}: Refresh and Export selected visible" ([bool](Find-Element $win 'Refresh') -and [bool](Find-Element $win 'Export selected'))
-    Assert $s.Name "${tab}: global controls visible (Browse, Open folder, Collect logs, Tutorial)" ([bool](Find-Element $win 'Browse...') -and [bool](Find-Element $win 'Open folder') -and [bool](Find-Element $win 'Collect logs') -and [bool](Find-Element $win 'Tutorial'))
+    Assert $s.Name "${tab}: archive folder hidden, Collect logs and Tutorial visible" (-not (Find-Element $win 'Browse...') -and -not (Find-Element $win 'Open folder') -and [bool](Find-Element $win 'Collect logs') -and [bool](Find-Element $win 'Tutorial'))
 }
 Click-Element $win 'Capture'
 Assert $s.Name 'Back to Capture: Listen visible again' ([bool](Find-Element $win '*Listen'))
@@ -553,8 +553,11 @@ $info = if ($orphan) { Get-Content -LiteralPath "$($orphan[0].FullName)\app-info
 Assert 'T12-win32-apps' 'App without policy: newest revision and error code' (($info -match 'revision 2') -and ($info -match '0x80070001'))
 
 # T13: invalid archive folder
+# The archive folder is in the Capture tab
+Click-Element $win 'Capture'
 $edit = [IntPtr](Find-Element $win $s.Out).Current.NativeWindowHandle
 [IPG.Win]::SetText($edit, 'C:\invalid<>folder')
+Click-Element $win 'Win32 apps'
 Click-Element $win 'Export selected' -Async
 $text = Close-Dialog (Wait-Dialog $p) $IDOK
 Assert 'T13-invalid-folder' 'Clear error, no crash' (($text -like '*Unable to create the folder*') -and -not $p.HasExited) $text
