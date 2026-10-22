@@ -1,8 +1,8 @@
 // Intune Package Grabber
 // Captures the Win32 packages that Intune extracts to C:\Windows\IMECache during an installation
 // (e.g. from Company Portal), saves their content and rebuilds the .intunewin file with IntuneWinAppUtil.
-// Additional option: launches IntuneWin Downloader by Rudy Ooms (call4cloud), downloaded from GitHub on first use,
-// which downloads and decrypts the assigned Win32 apps directly from Intune without installing them.
+// Diagnostics (Diagnostics.cs): Win32 apps and remediations known by IME on this device, log collection for support.
+// About & credits: downloads and launches IntuneWin Downloader by Rudy Ooms (call4cloud).
 //
 // Command line options (for testing): --cache <folder> --dest <folder> --log <file> --imelogs <folder> --listen --exit-after <seconds>
 
@@ -118,6 +118,7 @@ namespace IntunePackageGrabber
         public string Id;
         public string Name;
         public string Version;
+        public string Intent;
         public string SetupFile;
         public string InstallCommand;
         public string UninstallCommand;
@@ -127,23 +128,13 @@ namespace IntunePackageGrabber
         public string RawJson;
     }
 
-    class MainForm : Form
+    partial class MainForm : Form
     {
         static string ImeLogFolder = @"C:\ProgramData\Microsoft\IntuneManagementExtension\Logs";
         const int StableSeconds = 3;
 
         // List columns
         const int ColTime = 0, ColApp = 1, ColVersion = 2, ColStatus = 3, ColSize = 4, ColPath = 5;
-
-        static readonly Color Accent = Color.FromArgb(15, 108, 189);
-        static readonly Color AccentDark = Color.FromArgb(17, 94, 163);
-        static readonly Color GreenColor = Color.FromArgb(16, 124, 16);
-        static readonly Color RedColor = Color.FromArgb(196, 43, 28);
-        static readonly Color OrangeColor = Color.FromArgb(202, 80, 16);
-        static readonly Color Surface = Color.FromArgb(245, 246, 248);
-        static readonly Color Border = Color.FromArgb(222, 225, 230);
-        static readonly Color TextMuted = Color.FromArgb(96, 96, 96);
-        static readonly Color DisabledBack = Color.FromArgb(225, 227, 230);
 
         readonly string cacheRoot = @"C:\Windows\IMECache";
         static readonly string appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "IntunePackageGrabber");
@@ -154,11 +145,11 @@ namespace IntunePackageGrabber
         readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
         int activeJobs;
         bool listening, scanning;
-        Color dotColor = Color.Gray;
+        Color dotColor = IdleColor;
 
         TextBox txtDest;
         TextBox txtLog;
-        Button btnBrowse, btnListen, btnStop, btnOpen, btnDownload, btnDownloader;
+        Button btnBrowse, btnListen, btnStop, btnOpen, btnDownload;
         CheckBox chkIntunewin;
         Label lblStatus;
         Panel dot;
@@ -216,50 +207,51 @@ namespace IntunePackageGrabber
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
             Text = "Intune Package Grabber";
-            Font = new Font("Segoe UI", 9.5f);
-            BackColor = Surface;
+            Font = new Font(UiFont, 9.5f);
+            BackColor = Background;
+            ForeColor = TextPrimary;
             ClientSize = new Size(960, 640);
             MinimumSize = new Size(760, 520);
             StartPosition = FormStartPosition.CenterScreen;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+            UseDarkTitleBar(this);
 
             // Header
-            var header = new Panel { Dock = DockStyle.Top, Size = new Size(960, 72), BackColor = Accent };
+            var header = new Panel { Dock = DockStyle.Top, Size = new Size(960, 72), BackColor = Background };
             header.Paint += (s, e) =>
             {
-                using (var brush = new LinearGradientBrush(header.ClientRectangle, Accent, AccentDark, LinearGradientMode.Horizontal))
+                using (var brush = new LinearGradientBrush(header.ClientRectangle, HeaderStart, Background, LinearGradientMode.Horizontal))
                     e.Graphics.FillRectangle(brush, header.ClientRectangle);
             };
-            var title = new Label { Text = "Intune Package Grabber", ForeColor = Color.White, BackColor = Color.Transparent, Font = new Font("Segoe UI Semibold", 15f), AutoSize = true, Location = new Point(20, 8) };
-            var subtitle = new Label { Text = "Captures content and .intunewin of Win32 packages while they install from Company Portal", ForeColor = Color.FromArgb(220, 235, 250), BackColor = Color.Transparent, AutoSize = true, Location = new Point(22, 46) };
-            var about = new LinkLabel { Text = "About & credits", UseMnemonic = false, BackColor = Color.Transparent, AutoSize = true,LinkBehavior = LinkBehavior.HoverUnderline, Anchor = AnchorStyles.Top | AnchorStyles.Right };
-            about.LinkColor = about.VisitedLinkColor = Color.White;
-            about.ActiveLinkColor = Color.FromArgb(220, 235, 250);
-            about.Location = new Point(header.Width - 20 - about.PreferredWidth, 14);
-            about.LinkClicked += delegate { ShowAbout(); };
-            header.Controls.Add(title);
-            header.Controls.Add(subtitle);
-            header.Controls.Add(about);
+            var title = new Label { Text = "Intune Package Grabber", ForeColor = TextPrimary, BackColor = Color.Transparent, Font = new Font(DisplaySemibold, 15f), AutoSize = true, Location = new Point(20, 8) };
+            var subtitle = new Label { Text = "Captures Win32 packages during Company Portal installations and diagnoses Intune apps and remediations", ForeColor = TextMuted, BackColor = Color.Transparent, AutoSize = true, Location = new Point(22, 46) };
+            var about = HeaderButton("About & credits", 140, delegate { ShowAbout(); });
+            about.Location = new Point(header.Width - 20 - about.Width, 14);
+            var tutorial = HeaderButton("Tutorial", 100, delegate { ShowTutorial(); });
+            tutorial.Location = new Point(about.Left - 8 - tutorial.Width, 14);
+            header.Controls.AddRange(new Control[] { title, subtitle, tutorial, about });
 
             // Settings
             var settings = new Panel { Dock = DockStyle.Top, Height = 104, Padding = new Padding(20, 0, 20, 0) };
             // Initial size = design size, so the anchors keep the margins
             var card = MakeCard();
             card.Size = new Size(920, 104);
-            var lblDest = new Label { Text = "Archive folder", Font = new Font("Segoe UI Semibold", 9.5f), AutoSize = true, Location = new Point(14, 10) };
-            txtDest = new TextBox { Location = new Point(16, 36), Size = new Size(758, 25), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, Font = new Font("Segoe UI", 10f) };
-            btnBrowse = MakeButton("Browse...", Color.White, Color.Black);
+            var lblDest = new Label { Text = "Archive folder", Font = new Font(UiSemibold, 9.5f), AutoSize = true, Location = new Point(14, 10) };
+            txtDest = new TextBox { Location = new Point(16, 36), Size = new Size(758, 25), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, Font = new Font(UiFont, 10f), BackColor = ControlBack, ForeColor = TextPrimary, BorderStyle = BorderStyle.FixedSingle };
+            btnBrowse = MakeButton("Browse...", ControlBack, TextPrimary);
             btnBrowse.Location = new Point(784, 34);
             btnBrowse.Size = new Size(120, 30);
-            btnBrowse.Font = new Font("Segoe UI", 9.5f);
+            btnBrowse.Font = new Font(UiFont, 9.5f);
             btnBrowse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnBrowse.Click += OnBrowse;
-            chkIntunewin = new CheckBox { Text = "Also create the .intunewin file (IntuneWinAppUtil, same setup file as the Intune policy)", Checked = true, AutoSize = true, Location = new Point(16, 72), ForeColor = TextMuted };
+            chkIntunewin = new CheckBox { Text = "Also create the .intunewin file (IntuneWinAppUtil, same setup file as the Intune policy)", Checked = true, AutoSize = true, Location = new Point(16, 72), ForeColor = TextMuted, FlatStyle = FlatStyle.Flat };
+            chkIntunewin.FlatAppearance.BorderColor = IdleColor;
+            chkIntunewin.FlatAppearance.CheckedBackColor = ControlBack;
             chkIntunewin.CheckedChanged += delegate { UpdateDownloadButton(); };
-            btnDownload = MakeButton("↓  Download IntuneWinAppUtil", Accent, Color.White);
+            btnDownload = MakeButton("↓  Download IntuneWinAppUtil", Accent, Color.Black);
             btnDownload.Location = new Point(704, 68);
             btnDownload.Size = new Size(200, 28);
-            btnDownload.Font = new Font("Segoe UI Semibold", 9f);
+            btnDownload.Font = new Font(UiSemibold, 9f);
             btnDownload.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnDownload.Visible = false;
             btnDownload.Click += OnDownloadIntuneWinAppUtil;
@@ -272,13 +264,13 @@ namespace IntunePackageGrabber
 
             // Actions
             var actions = new Panel { Dock = DockStyle.Top, Size = new Size(960, 64) };
-            btnListen = MakeButton("\u25B6  Listen", GreenColor, Color.White);
+            btnListen = MakeButton("\u25B6  Listen", GreenFill, Color.White);
             btnListen.Location = new Point(20, 14);
             btnListen.Click += delegate { StartListening(); };
-            btnStop = MakeButton("\u25A0  Stop", RedColor, Color.White);
+            btnStop = MakeButton("\u25A0  Stop", RedFill, Color.White);
             btnStop.Location = new Point(156, 14);
             btnStop.Click += delegate { StopListening(); };
-            btnOpen = MakeButton("Open folder", Color.White, Color.Black);
+            btnOpen = MakeButton("Open folder", ControlBack, TextPrimary);
             btnOpen.Location = new Point(292, 14);
             btnOpen.Size = new Size(140, 38);
             btnOpen.Click += delegate { OpenFolder(txtDest.Text); };
@@ -293,17 +285,17 @@ namespace IntunePackageGrabber
                 AutoSize = false,
                 AutoEllipsis = true,
                 Location = new Point(472, 22),
-                Size = new Size(280, 24),
+                Size = new Size(302, 24),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                Font = new Font("Segoe UI Semibold", 10f)
+                Font = new Font(UiSemibold, 10f)
             };
-            btnDownloader = MakeButton(DownloaderButtonText, Color.White, Accent);
-            btnDownloader.Location = new Point(768, 14);
-            btnDownloader.Size = new Size(172, 38);
-            btnDownloader.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnDownloader.Click += OnIntuneWinDownloader;
-            new ToolTip().SetToolTip(btnDownloader, "Additional option: IntuneWin Downloader by Rudy Ooms (call4cloud).\r\nDownloads and decrypts the Win32 apps assigned to this device directly from Intune,\r\nwithout installing them. Downloaded from GitHub on first use.");
-            actions.Controls.AddRange(new Control[] { btnListen, btnStop, btnOpen, dot, lblStatus, btnDownloader });
+            btnCollectLogs = MakeButton("Collect logs", ControlBack, TextPrimary);
+            btnCollectLogs.Location = new Point(790, 14);
+            btnCollectLogs.Size = new Size(150, 38);
+            btnCollectLogs.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnCollectLogs.Click += OnCollectLogs;
+            new ToolTip().SetToolTip(btnCollectLogs, "Creates a zip in the archive folder with the IME and Company Portal logs, the IME registry,\r\nthe MDM event log, dsregcmd /status and the state of the Win32 apps and remediations.");
+            actions.Controls.AddRange(new Control[] { btnListen, btnStop, btnOpen, dot, lblStatus, btnCollectLogs });
 
             // Package list + log
             list = new ListView
@@ -313,8 +305,9 @@ namespace IntunePackageGrabber
                 FullRowSelect = true,
                 HeaderStyle = ColumnHeaderStyle.Nonclickable,
                 BorderStyle = BorderStyle.None,
-                Font = new Font("Segoe UI", 9.5f)
+                Font = new Font(UiFont, 9.5f)
             };
+            UseDarkListView(list);
             // ListView columns are not scaled by AutoScale: scale them manually
             float scale;
             using (var g = CreateGraphics()) scale = g.DpiX / 96f;
@@ -337,12 +330,25 @@ namespace IntunePackageGrabber
                 ScrollBars = ScrollBars.Both,
                 WordWrap = false,
                 BorderStyle = BorderStyle.None,
-                BackColor = Color.FromArgb(250, 250, 251),
-                Font = new Font("Consolas", 9f)
+                BackColor = ConsoleBack,
+                ForeColor = ConsoleText,
+                Font = new Font(MonoFont, 9f)
+            };
+            UseDarkScrollbars(txtLog);
+
+            var tabs = new TabStrip { Dock = DockStyle.Fill };
+            tabs.AddPage("Captured packages", MakeTab(WrapInCard(list, "Captured packages  (double-click to open)")));
+            tabs.AddPage("Win32 apps", MakeTab(BuildAppsTab()));
+            tabs.AddPage("Remediations", MakeTab(BuildRemediationsTab()));
+            tabs.SelectedIndexChanged += delegate
+            {
+                // Loaded on first view: reading the IME logs can take a few seconds
+                if (tabs.SelectedIndex == 1 && !appsLoaded) RefreshApps();
+                if (tabs.SelectedIndex == 2 && !remediationsLoaded) RefreshRemediations();
             };
 
-            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, BackColor = Surface, SplitterWidth = 12 };
-            split.Panel1.Controls.Add(WrapInCard(list, "Captured packages  (double-click to open)"));
+            var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, BackColor = Background, SplitterWidth = 12 };
+            split.Panel1.Controls.Add(tabs);
             split.Panel2.Controls.Add(WrapInCard(txtLog, "Log"));
             var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 0, 20, 20) };
             body.Controls.Add(split);
@@ -360,7 +366,7 @@ namespace IntunePackageGrabber
 
         Panel MakeCard()
         {
-            var card = new Panel { BackColor = Color.White };
+            var card = new Panel { BackColor = CardBack };
             card.Paint += (s, e) =>
             {
                 var p = (Panel)s;
@@ -374,7 +380,7 @@ namespace IntunePackageGrabber
             var card = MakeCard();
             card.Dock = DockStyle.Fill;
             card.Padding = new Padding(1, 32, 1, 1);
-            var lbl = new Label { Text = caption, Font = new Font("Segoe UI Semibold", 9.5f), AutoSize = true, Location = new Point(12, 8) };
+            var lbl = new Label { Text = caption, Font = new Font(UiSemibold, 9.5f), AutoSize = true, Location = new Point(12, 8) };
             card.Controls.Add(inner);
             card.Controls.Add(lbl);
             return card;
@@ -389,15 +395,24 @@ namespace IntunePackageGrabber
                 BackColor = back,
                 ForeColor = fore,
                 Size = new Size(126, 38),
-                Font = new Font("Segoe UI Semibold", 10f),
+                Font = new Font(UiSemibold, 10f),
                 Cursor = Cursors.Hand,
                 Tag = back
             };
-            b.FlatAppearance.BorderSize = back == Color.White ? 1 : 0;
+            b.FlatAppearance.BorderSize = back == ControlBack ? 1 : 0;
             b.FlatAppearance.BorderColor = Border;
             b.EnabledChanged += delegate
             {
                 b.BackColor = b.Enabled ? (Color)b.Tag : DisabledBack;
+            };
+            // Windows draws disabled text in a dark gray that is not readable on the dark theme
+            b.Paint += (s, e) =>
+            {
+                if (b.Enabled) return;
+                using (var fill = new SolidBrush(DisabledBack)) e.Graphics.FillRectangle(fill, b.ClientRectangle);
+                if (b.FlatAppearance.BorderSize > 0)
+                    using (var pen = new Pen(Border)) e.Graphics.DrawRectangle(pen, 0, 0, b.Width - 1, b.Height - 1);
+                TextRenderer.DrawText(e.Graphics, b.Text, b.Font, b.ClientRectangle, DisabledText, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.HidePrefix);
             };
             return b;
         }
@@ -410,8 +425,9 @@ namespace IntunePackageGrabber
                 AutoScaleDimensions = new SizeF(96F, 96F),
                 AutoScaleMode = AutoScaleMode.Dpi,
                 Font = Font,
-                BackColor = Color.White,
-                ClientSize = new Size(560, 292),
+                BackColor = Background,
+                ForeColor = TextPrimary,
+                ClientSize = new Size(560, 380),
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 MaximizeBox = false,
                 MinimizeBox = false,
@@ -420,20 +436,29 @@ namespace IntunePackageGrabber
             })
             {
                 about.SuspendLayout();
-                var title = new Label { Text = "Intune Package Grabber", Font = new Font("Segoe UI Semibold", 13f), AutoSize = true, Location = new Point(20, 16) };
-                var version = new Label { Text = "Version " + Assembly.GetExecutingAssembly().GetName().Version.ToString(3), ForeColor = TextMuted, AutoSize = true, Location = new Point(22, 46) };
-                var credits = new Label { Text = "Credits", Font = new Font("Segoe UI Semibold", 10f), AutoSize = true, Location = new Point(20, 84) };
-                var ok = MakeButton("OK", Accent, Color.White);
-                ok.Location = new Point(452, 242);
+                UseDarkTitleBar(about);
+                var title = new Label { Text = "Intune Package Grabber", Font = new Font(DisplaySemibold, 13f), AutoSize = true, Location = new Point(20, 16) };
+                var version = new Label { Text = "Version " + Assembly.GetExecutingAssembly().GetName().Version.ToString(3) + "  •  open source, MIT License", ForeColor = TextMuted, AutoSize = true, Location = new Point(22, 46) };
+                var description = new Label { Text = "Captures the Win32 packages installed from Company Portal and shows the state of the Win32 apps and remediations of this device, for technicians and Intune engineers.", ForeColor = TextMuted, AutoSize = false, Size = new Size(520, 40), Location = new Point(22, 72) };
+                var credits = new Label { Text = "Credits", Font = new Font(UiSemibold, 10f), AutoSize = true, Location = new Point(20, 126) };
+                var ok = MakeButton("OK", Accent, Color.Black);
+                ok.Location = new Point(452, 330);
                 ok.Size = new Size(88, 32);
                 ok.DialogResult = DialogResult.OK;
+                var downloader = MakeButton(FindDownloader() != null ? DownloaderOpenText : DownloaderDownloadText, Accent, Color.Black);
+                downloader.Location = new Point(20, 206);
+                downloader.Size = new Size(260, 32);
+                downloader.Font = new Font(UiSemibold, 9.5f);
+                downloader.Click += OnIntuneWinDownloader;
+                new ToolTip().SetToolTip(downloader, "Downloads and decrypts the Win32 apps assigned to this device directly from Intune,\r\nwithout installing them. Downloaded from GitHub on first use (about 85 MB).");
                 about.Controls.AddRange(new Control[]
                 {
-                    title, version, credits,
-                    new Label { Text = "IntuneWin Downloader  •  created by Rudy Ooms (call4cloud), MIT License", AutoSize = true, Location = new Point(20, 112) },
-                    MakeLink(DownloaderRepo, new Point(20, 134)),
-                    new Label { Text = "IntuneWinAppUtil (Microsoft Win32 Content Prep Tool)  •  Microsoft Corporation", AutoSize = true, Location = new Point(20, 172) },
-                    MakeLink("https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool", new Point(20, 194)),
+                    title, version, description, credits,
+                    new Label { Text = "IntuneWin Downloader  •  created by Rudy Ooms (call4cloud), MIT License", AutoSize = true, Location = new Point(20, 156) },
+                    MakeLink(DownloaderRepo, new Point(20, 178)),
+                    downloader,
+                    new Label { Text = "IntuneWinAppUtil (Microsoft Win32 Content Prep Tool)  •  Microsoft Corporation", AutoSize = true, Location = new Point(20, 260) },
+                    MakeLink("https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool", new Point(20, 282)),
                     ok
                 });
                 about.AcceptButton = about.CancelButton = ok;
@@ -444,7 +469,7 @@ namespace IntunePackageGrabber
 
         static LinkLabel MakeLink(string url, Point location)
         {
-            var link = new LinkLabel { Text = url, AutoSize = true, Location = location, LinkColor = Accent, VisitedLinkColor = Accent, LinkBehavior = LinkBehavior.HoverUnderline };
+            var link = new LinkLabel { Text = url, AutoSize = true, Location = location, LinkColor = Accent, VisitedLinkColor = Accent, ActiveLinkColor = TextPrimary, LinkBehavior = LinkBehavior.HoverUnderline };
             link.LinkClicked += delegate { Process.Start(url); };
             return link;
         }
@@ -454,10 +479,13 @@ namespace IntunePackageGrabber
             listening = value;
             btnListen.Enabled = !value;
             btnStop.Enabled = value;
-            txtDest.Enabled = !value;
+            // Locked instead of disabled: disabled text would not be readable on the dark theme
+            txtDest.ReadOnly = value;
+            txtDest.ForeColor = value ? TextMuted : TextPrimary;
             btnBrowse.Enabled = !value;
-            chkIntunewin.Enabled = !value;
-            dotColor = value ? GreenColor : Color.Gray;
+            chkIntunewin.AutoCheck = !value;
+            chkIntunewin.ForeColor = value ? IdleColor : TextMuted;
+            dotColor = value ? GreenColor : IdleColor;
             lblStatus.Text = value ? "Listening  •  " + cacheRoot : "Stopped";
             lblStatus.ForeColor = value ? GreenColor : TextMuted;
             dot.Invalidate();
@@ -534,12 +562,13 @@ namespace IntunePackageGrabber
             }
         }
 
-        void StartListening()
+        // Creates the archive folder (also used by the exports and the log collection) and remembers it
+        bool PrepareDest()
         {
             if (string.IsNullOrWhiteSpace(txtDest.Text))
             {
                 MessageBox.Show(this, "Choose an archive folder.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                return false;
             }
             try
             {
@@ -548,9 +577,15 @@ namespace IntunePackageGrabber
             catch (Exception ex)
             {
                 MessageBox.Show(this, "Unable to create the folder:\n" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
+                return false;
             }
             SaveSettings(txtDest.Text);
+            return true;
+        }
+
+        void StartListening()
+        {
+            if (!PrepareDest()) return;
             if (!Directory.Exists(cacheRoot)) Log(cacheRoot + " does not exist yet: it will be watched as soon as IME creates it.");
 
             // Folders already present are treated as new (they usually belong to an installation in progress),
@@ -960,7 +995,8 @@ namespace IntunePackageGrabber
         const string DownloaderUrl = "https://raw.githubusercontent.com/call4cloud-code/Intunewin-Downloader-Public/cec58379cba47cabaf7251d96f2dba635e8f0f5a/0.6.127.zip";
         const string DownloaderSha256 = "F7C05C224769C6B48DF0F2A34B7AB942F042F22170D5BC11B5B7E4C4CE9998E2";
         const string DownloaderExe = "IntuneWinDownloader.WinUI.exe";
-        const string DownloaderButtonText = "IntuneWin Downloader";
+        const string DownloaderOpenText = "Open IntuneWin Downloader";
+        const string DownloaderDownloadText = "↓  Download IntuneWin Downloader";
 
         // %LOCALAPPDATA%: about 200 MB once extracted, must not roam with the profile
         static readonly string downloaderRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IntunePackageGrabber", "IntuneWinDownloader");
@@ -973,15 +1009,17 @@ namespace IntunePackageGrabber
             return null;
         }
 
+        // Button in About & credits: the dialog can be closed while the download is still running
         async void OnIntuneWinDownloader(object sender, EventArgs e)
         {
+            var button = (Button)sender;
             string exe = FindDownloader();
             if (exe == null)
             {
-                if (MessageBox.Show(this, "IntuneWin Downloader " + DownloaderVersion + ", created by Rudy Ooms (call4cloud), downloads and decrypts the Win32 apps assigned to this device directly from Intune, without installing them.\r\n\r\nDownload it now from GitHub (about 85 MB)?\r\n" + DownloaderRepo, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                if (MessageBox.Show(button.FindForm(), "IntuneWin Downloader " + DownloaderVersion + ", created by Rudy Ooms (call4cloud), downloads and decrypts the Win32 apps assigned to this device directly from Intune, without installing them.\r\n\r\nDownload it now from GitHub (about 85 MB)?\r\n" + DownloaderRepo, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                     return;
 
-                btnDownloader.Enabled = false;
+                button.Enabled = false;
                 string temp = Path.Combine(Path.GetTempPath(), "IntunePackageGrabber", Guid.NewGuid().ToString("N") + ".zip");
                 string staging = Path.Combine(downloaderRoot, "_" + Guid.NewGuid().ToString("N").Substring(0, 8));
                 try
@@ -991,11 +1029,11 @@ namespace IntunePackageGrabber
                     ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
                     using (var client = new WebClient())
                     {
-                        client.DownloadProgressChanged += (s, a) => btnDownloader.Text = "Downloading " + a.ProgressPercentage + "%";
+                        client.DownloadProgressChanged += (s, a) => { if (!button.IsDisposed) button.Text = "Downloading " + a.ProgressPercentage + "%"; };
                         await client.DownloadFileTaskAsync(DownloaderUrl, temp);
                     }
 
-                    btnDownloader.Text = "Extracting...";
+                    if (!button.IsDisposed) button.Text = "Extracting...";
                     await Task.Run(() =>
                     {
                         string hash;
@@ -1017,14 +1055,17 @@ namespace IntunePackageGrabber
                 {
                     exe = null;
                     Log("ERROR downloading IntuneWin Downloader: " + ex.Message);
-                    MessageBox.Show(this, "IntuneWin Downloader download failed:\r\n" + ex.Message + "\r\n\r\nAlternatively, extract it from " + DownloaderRepo + " into an IntuneWinDownloader folder next to IntunePackageGrabber.exe.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(button.IsDisposed ? this : button.FindForm(), "IntuneWin Downloader download failed:\r\n" + ex.Message + "\r\n\r\nAlternatively, extract it from " + DownloaderRepo + " into an IntuneWinDownloader folder next to IntunePackageGrabber.exe.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
                 finally
                 {
                     try { if (File.Exists(temp)) File.Delete(temp); } catch { }
                     try { if (Directory.Exists(staging)) Directory.Delete(staging, true); } catch { }
-                    btnDownloader.Text = DownloaderButtonText;
-                    btnDownloader.Enabled = true;
+                    if (!button.IsDisposed)
+                    {
+                        button.Text = exe != null ? DownloaderOpenText : DownloaderDownloadText;
+                        button.Enabled = true;
+                    }
                 }
                 if (exe == null) return;
             }
@@ -1047,25 +1088,36 @@ namespace IntunePackageGrabber
 
         static AppPolicy FindPolicy(string appId)
         {
-            if (!Directory.Exists(ImeLogFolder)) return null;
+            foreach (var d in LoggedPolicies(appId))
+                if (string.Equals(Str(d, "Id"), appId, StringComparison.OrdinalIgnoreCase)) return ToPolicy(d);
+            return null;
+        }
+
+        // All the app policies in the IME logs, the newest version of each
+        static Dictionary<string, AppPolicy> LoadLoggedPolicies()
+        {
+            var result = new Dictionary<string, AppPolicy>(StringComparer.OrdinalIgnoreCase);
+            foreach (var d in LoggedPolicies(null))
+            {
+                string id = Str(d, "Id");
+                if (id != null && !result.ContainsKey(id)) result[id] = ToPolicy(d);
+            }
+            return result;
+        }
+
+        // App policies of the "Get policies" lines in AppWorkload*.log, from the newest to the oldest.
+        // With 'filter', only the lines that contain it are deserialized.
+        static IEnumerable<Dictionary<string, object>> LoggedPolicies(string filter)
+        {
+            if (!Directory.Exists(ImeLogFolder)) yield break;
             var logs = new DirectoryInfo(ImeLogFolder).GetFiles("AppWorkload*.log").OrderByDescending(f => f.LastWriteTimeUtc);
-            var serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue, RecursionLimit = 256 };
             const string marker = "Get policies = ";
 
             foreach (var log in logs)
             {
-                string text;
-                try
-                {
-                    using (var fs = new FileStream(log.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                    using (var sr = new StreamReader(fs)) text = sr.ReadToEnd();
-                }
-                catch
-                {
-                    continue;
-                }
+                string text = ReadShared(log.FullName);
+                if (text == null) continue;
 
-                // From the newest policy to the oldest
                 int idx = text.LastIndexOf(marker, StringComparison.Ordinal);
                 while (idx >= 0)
                 {
@@ -1074,44 +1126,57 @@ namespace IntunePackageGrabber
                     if (end > start)
                     {
                         string json = text.Substring(start, end - start);
-                        if (json.IndexOf(appId, StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            try
-                            {
-                                var arr = serializer.DeserializeObject(json) as object[];
-                                if (arr != null)
-                                {
-                                    foreach (var o in arr)
-                                    {
-                                        var d = o as Dictionary<string, object>;
-                                        if (d != null && string.Equals(Str(d, "Id"), appId, StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            return new AppPolicy
-                                            {
-                                                Id = appId,
-                                                Name = Str(d, "Name"),
-                                                Version = Str(d, "Version"),
-                                                SetupFile = Str(d, "SetUpFilePath"),
-                                                InstallCommand = Str(d, "InstallCommandLine"),
-                                                UninstallCommand = Str(d, "UninstallCommandLine"),
-                                                DetectionRule = Str(d, "DetectionRule"),
-                                                RequirementRules = Str(d, "RequirementRules"),
-                                                ReturnCodes = Str(d, "ReturnCodes"),
-                                                RawJson = serializer.Serialize(d)
-                                            };
-                                        }
-                                    }
-                                }
-                            }
-                            catch
-                            {
-                            }
-                        }
+                        if (filter == null || json.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                            foreach (var d in DeserializeArray(json)) yield return d;
                     }
                     idx = idx > 0 ? text.LastIndexOf(marker, idx - 1, StringComparison.Ordinal) : -1;
                 }
             }
-            return null;
+        }
+
+        // Reads a log that IME keeps open for writing
+        static string ReadShared(string path)
+        {
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var sr = new StreamReader(fs)) return sr.ReadToEnd();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        static List<Dictionary<string, object>> DeserializeArray(string json)
+        {
+            try
+            {
+                var arr = new JavaScriptSerializer { MaxJsonLength = int.MaxValue, RecursionLimit = 256 }.DeserializeObject(json) as object[];
+                if (arr != null) return arr.OfType<Dictionary<string, object>>().ToList();
+            }
+            catch
+            {
+            }
+            return new List<Dictionary<string, object>>();
+        }
+
+        static AppPolicy ToPolicy(Dictionary<string, object> d)
+        {
+            return new AppPolicy
+            {
+                Id = Str(d, "Id"),
+                Name = Str(d, "Name"),
+                Version = Str(d, "Version"),
+                Intent = Str(d, "Intent"),
+                SetupFile = Str(d, "SetUpFilePath"),
+                InstallCommand = Str(d, "InstallCommandLine"),
+                UninstallCommand = Str(d, "UninstallCommandLine"),
+                DetectionRule = Str(d, "DetectionRule"),
+                RequirementRules = Str(d, "RequirementRules"),
+                ReturnCodes = Str(d, "ReturnCodes"),
+                RawJson = new JavaScriptSerializer { MaxJsonLength = int.MaxValue, RecursionLimit = 256 }.Serialize(d)
+            };
         }
 
         static string Str(Dictionary<string, object> d, string key)
@@ -1227,24 +1292,27 @@ namespace IntunePackageGrabber
             sb.AppendLine("Source              : " + source);
             sb.AppendLine("Captured            : " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " on " + Environment.MachineName);
             sb.AppendLine("Content             : " + files + " files, " + FormatSize(bytes));
-            if (policy != null)
-            {
-                sb.AppendLine();
-                sb.AppendLine("Setup file          : " + policy.SetupFile);
-                sb.AppendLine("Install command     : " + policy.InstallCommand);
-                sb.AppendLine("Uninstall command   : " + policy.UninstallCommand);
-                sb.AppendLine();
-                byte[] script;
-                foreach (var rule in DescribeDetection(policy.DetectionRule, out script))
-                    sb.AppendLine("Detection rule      : " + rule);
-                if (script != null) File.WriteAllBytes(LongPath(Path.Combine(dest, "detection.ps1")), script);
-                sb.AppendLine("Return codes        : " + DescribeReturnCodes(policy.ReturnCodes));
-                sb.AppendLine("Requirements        : " + policy.RequirementRules);
-                sb.AppendLine();
-                sb.AppendLine("Raw detection rule  : " + policy.DetectionRule);
-                File.WriteAllText(LongPath(Path.Combine(dest, "policy.json")), policy.RawJson, Encoding.UTF8);
-            }
+            if (policy != null) AppendPolicyInfo(sb, policy, dest);
             File.WriteAllText(LongPath(Path.Combine(dest, "app-info.txt")), sb.ToString(), Encoding.UTF8);
+        }
+
+        // Commands, detection rules, return codes and requirements; with 'dest' also saves detection.ps1 and policy.json
+        static void AppendPolicyInfo(StringBuilder sb, AppPolicy policy, string dest)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Setup file          : " + policy.SetupFile);
+            sb.AppendLine("Install command     : " + policy.InstallCommand);
+            sb.AppendLine("Uninstall command   : " + policy.UninstallCommand);
+            sb.AppendLine();
+            byte[] script;
+            foreach (var rule in DescribeDetection(policy.DetectionRule, out script))
+                sb.AppendLine("Detection rule      : " + rule);
+            if (script != null && dest != null) File.WriteAllBytes(LongPath(Path.Combine(dest, "detection.ps1")), script);
+            sb.AppendLine("Return codes        : " + DescribeReturnCodes(policy.ReturnCodes));
+            sb.AppendLine("Requirements        : " + policy.RequirementRules);
+            sb.AppendLine();
+            sb.AppendLine("Raw detection rule  : " + policy.DetectionRule);
+            if (dest != null) File.WriteAllText(LongPath(Path.Combine(dest, "policy.json")), policy.RawJson, Encoding.UTF8);
         }
 
         #endregion

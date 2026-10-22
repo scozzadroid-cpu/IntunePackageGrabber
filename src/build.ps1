@@ -43,7 +43,7 @@ $cscArgs = @(
 if ($NoEmbed) { }
 elseif (Test-Path $IntuneWinAppUtil) { $cscArgs += "/resource:$((Resolve-Path $IntuneWinAppUtil).Path),IntuneWinAppUtil.exe" }
 else { Write-Warning "IntuneWinAppUtil.exe not found at $IntuneWinAppUtil : it will not be embedded in the exe." }
-$cscArgs += (Join-Path $PSScriptRoot 'Program.cs')
+$cscArgs += (Get-ChildItem -Path $PSScriptRoot -Filter *.cs | ForEach-Object FullName)
 
 & $csc @cscArgs
 if ($LASTEXITCODE -ne 0) { throw "Build failed ($LASTEXITCODE)" }

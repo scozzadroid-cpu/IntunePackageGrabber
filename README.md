@@ -1,6 +1,6 @@
 # IntunePackageGrabber
 
-Windows tool (WinForms, single exe) that archives the Win32 packages Intune Management Extension (IME) downloads when an app is installed from Company Portal.
+Windows tool (WinForms, single exe, dark theme) for technicians and Intune engineers: it archives the Win32 packages Intune Management Extension (IME) downloads when an app is installed from Company Portal, and shows the state of the Win32 apps and remediations of the device. The **Tutorial** button in the app explains every function.
 
 IME extracts the content to `C:\Windows\IMECache\<AppId>_<version>` and deletes it when the installation ends. The tool watches the cache, waits until the extraction is complete and saves each package to the chosen folder:
 
@@ -15,9 +15,19 @@ If the `.intunewin` cannot be created, the content is saved anyway.
 
 The saved `.intunewin` is rebuilt from the content: it installs the same files, but it is not byte-identical to the original one uploaded to Intune (it is encrypted with new keys).
 
-## IntuneWin Downloader (additional option)
+## Diagnostics
 
-The **IntuneWin Downloader** button launches [IntuneWin Downloader](https://github.com/call4cloud-code/Intunewin-Downloader-Public), created by Rudy Ooms (call4cloud): it downloads and decrypts the Win32 apps assigned to the device directly from Intune, without installing them.
+For technicians and Intune engineers, read-only, from the data IME keeps on the device (no connection to Intune):
+
+- **Win32 apps** tab: every Win32 app known by IME with context (device/user), intent, detection state, last enforcement, error code and last update, read from `HKLM\SOFTWARE\Microsoft\IntuneManagementExtension\Win32Apps`. Names, commands, detection rules and requirements come from the policies in `AppWorkload*.log` (apps no longer in the logs are shown without a name). Apps with errors are listed first in red, apps without a name at the end. Double-click for details, the detection script and the policy JSON; **Export selected** saves `app-info.txt`, `policy.json` and `detection.ps1`.
+- **Remediations** tab: the remediations on the device with last run, detection and remediation exit codes and error code, from `C:\Windows\IMECache\HealthScripts` and `SideCarPolicies\Scripts`. Double-click to read `detect.ps1`, `remediate.ps1` and the script output; **Export selected** saves the scripts and the result.
+- **Collect logs**: creates `IntuneDiagnostics_<computer>_<date>.zip` in the archive folder with the IME and Company Portal logs, the IME registry, the MDM event log (DeviceManagement-Enterprise-Diagnostics-Provider/Admin), `dsregcmd /status` and the Win32 app and remediation states as CSV.
+
+Click a column header to sort.
+
+## IntuneWin Downloader
+
+**About & credits** has the button to download and launch [IntuneWin Downloader](https://github.com/call4cloud-code/Intunewin-Downloader-Public), created by Rudy Ooms (call4cloud): it downloads and decrypts the Win32 apps assigned to the device directly from Intune, without installing them.
 
 It is downloaded from GitHub on first use (about 85 MB) and saved to `%LOCALAPPDATA%\IntunePackageGrabber\IntuneWinDownloader\`. Its binaries are not signed, so the tool downloads a pinned version (0.6.127, from a fixed commit) and accepts it only if its SHA-256 matches. Alternatively, extract it into an `IntuneWinDownloader` folder next to the exe.
 
