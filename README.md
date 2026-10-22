@@ -23,7 +23,9 @@ For technicians and Intune engineers, read-only, from the data IME keeps on the 
 - **Remediations** tab: the remediations on the device with last run, detection and remediation exit codes and error code, from `C:\Windows\IMECache\HealthScripts` and `SideCarPolicies\Scripts`. Double-click to read `detect.ps1`, `remediate.ps1` and the script output; **Export selected** saves the scripts and the result.
 - **Collect logs**: creates `IntuneDiagnostics_<computer>_<date>.zip` in the archive folder with the IME and Company Portal logs, the IME registry, the MDM event log (DeviceManagement-Enterprise-Diagnostics-Provider/Admin), `dsregcmd /status` and the Win32 app and remediation states as CSV.
 
-Click a column header to sort.
+Click a column header to sort. After every export and log collection the tool asks whether to open the folder.
+
+Each tab shows only its own controls: Listen, Stop and the `.intunewin` option are in the **Capture** tab, Refresh and Export selected in the diagnostics tabs; the archive folder, Open folder, Collect logs, Tutorial and About & credits are always available. Listen keeps working in the other tabs: the Capture title shows "listening" and the number of new packages.
 
 ## IntuneWin Downloader
 
@@ -42,10 +44,10 @@ The exe is on the [Releases](../../releases/latest) page.
 
    ![Download IntuneWinAppUtil button](docs/download-button.png)
 2. Choose the archive folder.
-3. Press **Listen**, then start the installation from Company Portal.
+3. In the **Capture** tab press **Listen**, then start the installation from Company Portal.
 4. Press **Stop** when done.
 
-Command line options: `--dest <folder>`, `--listen`, `--cache <folder>`, `--log <file>`, `--imelogs <folder>`, `--exit-after <seconds>`.
+Command line options: `--dest <folder>`, `--listen`, `--cache <folder>`, `--log <file>`, `--imelogs <folder>`, `--imereg <HKLM|HKCU\key>`, `--exit-after <seconds>`.
 
 Settings and log: `%APPDATA%\IntunePackageGrabber\`.
 
@@ -73,6 +75,8 @@ powershell -ExecutionPolicy Bypass -File src\test.ps1 -Work C:\temp\IPG-tests -E
 ```
 
 Simulates IME on a fake cache and `AppWorkload.log`: progressive extraction with files still open for writing, parallel packages, folders removed during the copy, retries, paths over 260 characters, unknown setup file, detection rule decoding, Listen/Stop buttons.
+
+UI tests (the windows open on screen for a few seconds): controls shown per tab, Listen while another tab is shown, Win32 apps and remediations on a fake IME registry (`HKCU\Software\IPG-tests`, removed at the end), row order, exports with and without selection, the "open the folder" question, invalid archive folder, log collection. Dialogs are answered automatically ("No"), so Explorer is never opened.
 
 ## Credits
 

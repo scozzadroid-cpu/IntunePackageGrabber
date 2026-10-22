@@ -68,7 +68,8 @@ namespace IntunePackageGrabber
 
     partial class MainForm
     {
-        const string ImeKey = @"SOFTWARE\Microsoft\IntuneManagementExtension";
+        // Overridable with --imereg for the automated tests
+        static string ImeRegistry = @"HKLM\SOFTWARE\Microsoft\IntuneManagementExtension";
         const string DeviceUser = "00000000-0000-0000-0000-000000000000";
         static readonly Regex GuidName = new Regex(@"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
         // <policy or app id>_<revision>
@@ -312,8 +313,18 @@ namespace IntunePackageGrabber
 
         static RegistryKey OpenImeKey(string subKey)
         {
-            using (var hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
-                return hklm.OpenSubKey(ImeKey + @"\" + subKey);
+            int slash = ImeRegistry.IndexOf('\\');
+            var hive = ImeRegistry.StartsWith("HKCU", StringComparison.OrdinalIgnoreCase) ? RegistryHive.CurrentUser : RegistryHive.LocalMachine;
+            using (var root = RegistryKey.OpenBaseKey(hive, RegistryView.Registry64))
+                return root.OpenSubKey(ImeRegistry.Substring(slash + 1) + @"\" + subKey);
+        }
+
+        // After an export: asks whether to open the folder now (selecting the file, if given)
+        void AskOpenFolder(string message, string folder, string file)
+        {
+            if (MessageBox.Show(this, message + "\r\n\r\nOpen the folder now?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            if (file != null) Process.Start("explorer.exe", "/select,\"" + file + "\"");
+            else OpenFolder(folder);
         }
 
         static Win32AppState ReadAppState(RegistryKey appKey, string appId, int revision, string user)
@@ -460,6 +471,7 @@ namespace IntunePackageGrabber
                 return;
             }
             if (!PrepareDest()) return;
+            var exported = new List<string>();
             foreach (var app in apps)
             {
                 try
@@ -468,12 +480,21 @@ namespace IntunePackageGrabber
                     string dest = CreateUniqueDest(txtDest.Text, label + "_info_" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
                     File.WriteAllText(LongPath(Path.Combine(dest, "app-info.txt")), AppDetails(app, dest), Encoding.UTF8);
                     Log("App info exported: " + dest);
+                    exported.Add(dest);
                 }
                 catch (Exception ex)
                 {
                     Log("ERROR exporting " + app.Name + ": " + ex.Message);
                 }
             }
+            AskOpenExported(exported, "app");
+        }
+
+        // One export: opens its folder; more: opens the archive folder
+        void AskOpenExported(List<string> exported, string what)
+        {
+            if (exported.Count == 1) AskOpenFolder("Exported " + what + " to:\r\n" + exported[0], exported[0], null);
+            else if (exported.Count > 1) AskOpenFolder(exported.Count + " " + what + "s exported to:\r\n" + txtDest.Text, txtDest.Text, null);
         }
 
         #endregion
@@ -647,6 +668,7 @@ namespace IntunePackageGrabber
                 return;
             }
             if (!PrepareDest()) return;
+            var exported = new List<string>();
             foreach (var r in rows)
             {
                 try
@@ -657,12 +679,14 @@ namespace IntunePackageGrabber
                         if (r.Folder != null && File.Exists(Path.Combine(r.Folder, file))) File.Copy(Path.Combine(r.Folder, file), LongPath(Path.Combine(dest, file)));
                     if (r.ResultJson != null) File.WriteAllText(LongPath(Path.Combine(dest, "result.json")), r.ResultJson, Encoding.UTF8);
                     Log("Remediation exported: " + dest);
+                    exported.Add(dest);
                 }
                 catch (Exception ex)
                 {
                     Log("ERROR exporting remediation " + r.PolicyId + ": " + ex.Message);
                 }
             }
+            AskOpenExported(exported, "remediation");
         }
 
         #endregion
@@ -679,8 +703,11 @@ namespace IntunePackageGrabber
             {
                 Log("Collecting the diagnostics to " + zip);
                 int count = await Task.Run(() => CollectDiagnostics(zip));
-                Log(string.Format("Diagnostics collected: {0} files, {1}", count, FormatSize(new FileInfo(LongPath(zip)).Length)));
-                Process.Start("explorer.exe", "/select,\"" + zip + "\"");
+                string summary = string.Format("Diagnostics collected: {0} files, {1}", count, FormatSize(new FileInfo(LongPath(zip)).Length));
+                Log(summary);
+                btnCollectLogs.Text = "Collect logs";
+                btnCollectLogs.Enabled = true;
+                AskOpenFolder(summary + "\r\n" + zip, null, zip);
             }
             catch (Exception ex)
             {
@@ -708,7 +735,7 @@ namespace IntunePackageGrabber
 
                     count += AddText(zip, "dsregcmd-status.txt", RunTool("dsregcmd.exe", "/status"));
                     string reg = Path.Combine(temp, "IntuneManagementExtension.reg");
-                    RunTool("reg.exe", "export \"HKLM\\" + ImeKey + "\" \"" + reg + "\" /y /reg:64");
+                    RunTool("reg.exe", "export \"" + ImeRegistry + "\" \"" + reg + "\" /y /reg:64");
                     count += AddFile(zip, reg, "registry/IntuneManagementExtension.reg");
                     string evtx = Path.Combine(temp, "DeviceManagement-Admin.evtx");
                     RunTool("wevtutil.exe", "epl \"Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider/Admin\" \"" + evtx + "\"");

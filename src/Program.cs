@@ -4,7 +4,8 @@
 // Diagnostics (Diagnostics.cs): Win32 apps and remediations known by IME on this device, log collection for support.
 // About & credits: downloads and launches IntuneWin Downloader by Rudy Ooms (call4cloud).
 //
-// Command line options (for testing): --cache <folder> --dest <folder> --log <file> --imelogs <folder> --listen --exit-after <seconds>
+// Command line options (for testing): --cache <folder> --dest <folder> --log <file> --imelogs <folder> --imereg <HKLM|HKCU\key>
+// --listen --exit-after <seconds>
 
 using System;
 using System.Collections.Generic;
@@ -152,8 +153,10 @@ namespace IntunePackageGrabber
         Button btnBrowse, btnListen, btnStop, btnOpen, btnDownload;
         CheckBox chkIntunewin;
         Label lblStatus;
-        Panel dot;
+        Panel dot, settingsWrap;
         ListView list;
+        TabStrip tabs;
+        int newCaptures;
 
         public MainForm(string[] args)
         {
@@ -166,6 +169,7 @@ namespace IntunePackageGrabber
                 else if (args[i] == "--dest" && i + 1 < args.Length) argDest = args[++i];
                 else if (args[i] == "--log" && i + 1 < args.Length) logFile = args[++i];
                 else if (args[i] == "--imelogs" && i + 1 < args.Length) ImeLogFolder = args[++i];
+                else if (args[i] == "--imereg" && i + 1 < args.Length) ImeRegistry = args[++i];
                 else if (args[i] == "--exit-after" && i + 1 < args.Length) int.TryParse(args[++i], out exitAfter);
                 else if (args[i] == "--listen") autoListen = true;
             }
@@ -231,19 +235,25 @@ namespace IntunePackageGrabber
             tutorial.Location = new Point(about.Left - 8 - tutorial.Width, 14);
             header.Controls.AddRange(new Control[] { title, subtitle, tutorial, about });
 
-            // Settings
+            // Settings: the archive folder is used by captures, exports and log collection
             var settings = new Panel { Dock = DockStyle.Top, Height = 104, Padding = new Padding(20, 0, 20, 0) };
             // Initial size = design size, so the anchors keep the margins
             var card = MakeCard();
             card.Size = new Size(920, 104);
-            var lblDest = new Label { Text = "Archive folder", Font = new Font(UiSemibold, 9.5f), AutoSize = true, Location = new Point(14, 10) };
-            txtDest = new TextBox { Location = new Point(16, 36), Size = new Size(758, 25), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, Font = new Font(UiFont, 10f), BackColor = ControlBack, ForeColor = TextPrimary, BorderStyle = BorderStyle.FixedSingle };
+            var lblDest = new Label { Text = "Archive folder  (captures, exports and logs)", Font = new Font(UiSemibold, 9.5f), AutoSize = true, Location = new Point(14, 10) };
+            txtDest = new TextBox { Location = new Point(16, 36), Size = new Size(638, 25), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, Font = new Font(UiFont, 10f), BackColor = ControlBack, ForeColor = TextPrimary, BorderStyle = BorderStyle.FixedSingle };
             btnBrowse = MakeButton("Browse...", ControlBack, TextPrimary);
-            btnBrowse.Location = new Point(784, 34);
+            btnBrowse.Location = new Point(664, 34);
             btnBrowse.Size = new Size(120, 30);
             btnBrowse.Font = new Font(UiFont, 9.5f);
             btnBrowse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnBrowse.Click += OnBrowse;
+            btnOpen = MakeButton("Open folder", ControlBack, TextPrimary);
+            btnOpen.Location = new Point(794, 34);
+            btnOpen.Size = new Size(110, 30);
+            btnOpen.Font = new Font(UiFont, 9.5f);
+            btnOpen.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnOpen.Click += delegate { OpenFolder(txtDest.Text); };
             chkIntunewin = new CheckBox { Text = "Also create the .intunewin file (IntuneWinAppUtil, same setup file as the Intune policy)", Checked = true, AutoSize = true, Location = new Point(16, 72), ForeColor = TextMuted, FlatStyle = FlatStyle.Flat };
             chkIntunewin.FlatAppearance.BorderColor = IdleColor;
             chkIntunewin.FlatAppearance.CheckedBackColor = ControlBack;
@@ -255,26 +265,22 @@ namespace IntunePackageGrabber
             btnDownload.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnDownload.Visible = false;
             btnDownload.Click += OnDownloadIntuneWinAppUtil;
-            card.Controls.AddRange(new Control[] { lblDest, txtDest, btnBrowse, chkIntunewin, btnDownload });
+            card.Controls.AddRange(new Control[] { lblDest, txtDest, btnBrowse, btnOpen, chkIntunewin, btnDownload });
             card.Dock = DockStyle.Fill;
             settings.Controls.Add(card);
-            var settingsWrap = new Panel { Dock = DockStyle.Top, Height = 120, Padding = new Padding(0, 16, 0, 0) };
+            settingsWrap = new Panel { Dock = DockStyle.Top, Height = 120, Padding = new Padding(0, 16, 0, 0) };
             settingsWrap.Controls.Add(settings);
             settings.Dock = DockStyle.Fill;
 
-            // Actions
-            var actions = new Panel { Dock = DockStyle.Top, Size = new Size(960, 64) };
+            // Capture tab: Listen / Stop and status above the captured packages
+            var actions = new Panel { Dock = DockStyle.Top, Size = new Size(920, 50) };
             btnListen = MakeButton("\u25B6  Listen", GreenFill, Color.White);
-            btnListen.Location = new Point(20, 14);
+            btnListen.Location = new Point(0, 2);
             btnListen.Click += delegate { StartListening(); };
             btnStop = MakeButton("\u25A0  Stop", RedFill, Color.White);
-            btnStop.Location = new Point(156, 14);
+            btnStop.Location = new Point(136, 2);
             btnStop.Click += delegate { StopListening(); };
-            btnOpen = MakeButton("Open folder", ControlBack, TextPrimary);
-            btnOpen.Location = new Point(292, 14);
-            btnOpen.Size = new Size(140, 38);
-            btnOpen.Click += delegate { OpenFolder(txtDest.Text); };
-            dot = new Panel { Size = new Size(14, 14), Location = new Point(452, 26) };
+            dot = new Panel { Size = new Size(14, 14), Location = new Point(282, 14) };
             dot.Paint += (s, e) =>
             {
                 e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -284,18 +290,19 @@ namespace IntunePackageGrabber
             {
                 AutoSize = false,
                 AutoEllipsis = true,
-                Location = new Point(472, 22),
-                Size = new Size(302, 24),
+                Location = new Point(302, 10),
+                Size = new Size(618, 24),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Font = new Font(UiSemibold, 10f)
             };
+            actions.Controls.AddRange(new Control[] { btnListen, btnStop, dot, lblStatus });
+
+            // Global action, next to the tabs
             btnCollectLogs = MakeButton("Collect logs", ControlBack, TextPrimary);
-            btnCollectLogs.Location = new Point(790, 14);
-            btnCollectLogs.Size = new Size(150, 38);
-            btnCollectLogs.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnCollectLogs.Size = new Size(130, 32);
+            btnCollectLogs.Font = new Font(UiSemibold, 9.5f);
             btnCollectLogs.Click += OnCollectLogs;
             new ToolTip().SetToolTip(btnCollectLogs, "Creates a zip in the archive folder with the IME and Company Portal logs, the IME registry,\r\nthe MDM event log, dsregcmd /status and the state of the Win32 apps and remediations.");
-            actions.Controls.AddRange(new Control[] { btnListen, btnStop, btnOpen, dot, lblStatus, btnCollectLogs });
 
             // Package list + log
             list = new ListView
@@ -336,16 +343,16 @@ namespace IntunePackageGrabber
             };
             UseDarkScrollbars(txtLog);
 
-            var tabs = new TabStrip { Dock = DockStyle.Fill };
-            tabs.AddPage("Captured packages", MakeTab(WrapInCard(list, "Captured packages  (double-click to open)")));
+            var capturePage = new Panel();
+            capturePage.Controls.Add(WrapInCard(list, "Captured packages  (double-click to open)"));
+            capturePage.Controls.Add(actions);
+
+            tabs = new TabStrip { Dock = DockStyle.Fill };
+            tabs.AddPage("Capture", MakeTab(capturePage));
             tabs.AddPage("Win32 apps", MakeTab(BuildAppsTab()));
             tabs.AddPage("Remediations", MakeTab(BuildRemediationsTab()));
-            tabs.SelectedIndexChanged += delegate
-            {
-                // Loaded on first view: reading the IME logs can take a few seconds
-                if (tabs.SelectedIndex == 1 && !appsLoaded) RefreshApps();
-                if (tabs.SelectedIndex == 2 && !remediationsLoaded) RefreshRemediations();
-            };
+            tabs.AddTool(btnCollectLogs);
+            tabs.SelectedIndexChanged += delegate { UpdateContext(); };
 
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, BackColor = Background, SplitterWidth = 12 };
             split.Panel1.Controls.Add(tabs);
@@ -355,7 +362,6 @@ namespace IntunePackageGrabber
             Shown += delegate { split.SplitterDistance = (int)(split.Height * 0.6); };
 
             Controls.Add(body);
-            Controls.Add(actions);
             Controls.Add(settingsWrap);
             Controls.Add(header);
 
@@ -489,6 +495,7 @@ namespace IntunePackageGrabber
             lblStatus.Text = value ? "Listening  •  " + cacheRoot : "Stopped";
             lblStatus.ForeColor = value ? GreenColor : TextMuted;
             dot.Invalidate();
+            UpdateCaptureTitle();
         }
 
         void Log(string message)
@@ -521,8 +528,32 @@ namespace IntunePackageGrabber
 
         void UpdateDownloadButton()
         {
-            // The button is needed only when the .intunewin is wanted and IntuneWinAppUtil is not available
-            btnDownload.Visible = chkIntunewin.Checked && !HasIntuneWinAppUtil();
+            // The button is needed only in the Capture tab, when the .intunewin is wanted and IntuneWinAppUtil is not available
+            btnDownload.Visible = (tabs == null || tabs.SelectedIndex == 0) && chkIntunewin.Checked && !HasIntuneWinAppUtil();
+        }
+
+        // Shows only the controls that are useful in the selected tab
+        void UpdateContext()
+        {
+            bool capture = tabs.SelectedIndex == 0;
+            chkIntunewin.Visible = capture;
+            // Without the .intunewin row the settings card is one row shorter
+            settingsWrap.Height = (int)((capture ? 120 : 88) * AutoScaleFactor.Height);
+            UpdateDownloadButton();
+            if (capture) newCaptures = 0;
+            UpdateCaptureTitle();
+            // Loaded on first view: reading the IME logs can take a few seconds
+            if (tabs.SelectedIndex == 1 && !appsLoaded) RefreshApps();
+            if (tabs.SelectedIndex == 2 && !remediationsLoaded) RefreshRemediations();
+        }
+
+        // From the other tabs the Capture title tells that Listen is active and how many packages arrived
+        void UpdateCaptureTitle()
+        {
+            string title = "Capture";
+            if (listening) title += "  •  listening";
+            if (newCaptures > 0) title += "  (" + newCaptures + " new)";
+            tabs.SetTitle(0, title);
         }
 
         async void OnDownloadIntuneWinAppUtil(object sender, EventArgs e)
@@ -706,6 +737,11 @@ namespace IntunePackageGrabber
             item.UseItemStyleForSubItems = false;
             item.SubItems[ColStatus].ForeColor = Accent;
             list.Items.Insert(0, item);
+            if (tabs.SelectedIndex != 0)
+            {
+                newCaptures++;
+                UpdateCaptureTitle();
+            }
 
             string destRoot = txtDest.Text;
             bool makeIntunewin = chkIntunewin.Checked;

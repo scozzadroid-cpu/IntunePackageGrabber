@@ -124,7 +124,10 @@ namespace IntunePackageGrabber
         // Tab strip in the Windows 11 style: the native TabControl cannot be drawn dark
         class TabStrip : Panel
         {
-            readonly FlowLayoutPanel strip = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, WrapContents = false };
+            readonly Panel header = new Panel { Dock = DockStyle.Top, Height = 40 };
+            readonly FlowLayoutPanel strip = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
+            // Actions valid in every tab, right-aligned next to the titles
+            readonly FlowLayoutPanel tools = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.RightToLeft };
             readonly Panel body = new Panel { Dock = DockStyle.Fill };
             readonly List<Button> buttons = new List<Button>();
             readonly List<Control> pages = new List<Control>();
@@ -134,8 +137,21 @@ namespace IntunePackageGrabber
 
             public TabStrip()
             {
+                header.Controls.Add(strip);
+                header.Controls.Add(tools);
                 Controls.Add(body);
-                Controls.Add(strip);
+                Controls.Add(header);
+            }
+
+            public void AddTool(Control c)
+            {
+                c.Margin = new Padding(6, 2, 0, 0);
+                tools.Controls.Add(c);
+            }
+
+            public void SetTitle(int index, string title)
+            {
+                if (buttons[index].Text != title) buttons[index].Text = title;
             }
 
             public void AddPage(string title, Control content)
@@ -197,14 +213,15 @@ namespace IntunePackageGrabber
         {
             ShowTextViewer("Tutorial", new List<KeyValuePair<string, string>>
             {
-                new KeyValuePair<string, string>("Capture packages",
+                new KeyValuePair<string, string>("Capture",
                     "Saves a Win32 app while it installs from Company Portal, before the Intune Management Extension (IME) deletes it from C:\\Windows\\IMECache.\n\n" +
                     "1. Choose the archive folder.\n" +
-                    "2. Leave \"Also create the .intunewin file\" checked to rebuild the package for Intune. If the \"Download IntuneWinAppUtil\" button appears, press it once: the tool downloads IntuneWinAppUtil from Microsoft and checks its signature.\n" +
+                    "2. In the Capture tab, leave \"Also create the .intunewin file\" checked to rebuild the package for Intune. If the \"Download IntuneWinAppUtil\" button appears, press it once: the tool downloads IntuneWinAppUtil from Microsoft and checks its signature.\n" +
                     "3. Press Listen.\n" +
                     "4. Install the app from Company Portal.\n" +
                     "5. When the status shows \u2714 the package is saved: Content folder, .intunewin, app-info.txt (install/uninstall commands, detection rules, return codes), policy.json and detection.ps1 when the app uses a detection script. Double-click a row to open its folder.\n" +
                     "6. Press Stop when done.\n\n" +
+                    "Listen keeps working while you use the other tabs: the Capture title shows \"listening\" and how many new packages were captured.\n\n" +
                     "The .intunewin is rebuilt from the content: it installs the same files, but it is not byte-identical to the original uploaded to Intune."),
                 new KeyValuePair<string, string>("Win32 apps",
                     "Lists every Win32 app that IME knows on this device, read from the local IME registry and logs. Nothing is sent to Intune.\n\n" +
