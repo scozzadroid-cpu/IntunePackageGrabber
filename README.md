@@ -70,3 +70,7 @@ Also shown in the app (**About & credits**).
 
 - [IntuneWin Downloader](https://github.com/call4cloud-code/Intunewin-Downloader-Public): created by Rudy Ooms (call4cloud), MIT License
 - [IntuneWinAppUtil](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool) (Microsoft Win32 Content Prep Tool): Microsoft Corporation
+
+## License
+
+Open source under the [MIT License](LICENSE).
