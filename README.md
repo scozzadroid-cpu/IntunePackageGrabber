@@ -15,6 +15,12 @@ If the `.intunewin` cannot be created, the content is saved anyway.
 
 The saved `.intunewin` is rebuilt from the content: it installs the same files, but it is not byte-identical to the original one uploaded to Intune (it is encrypted with new keys).
 
+## IntuneWin Downloader (additional option)
+
+The **IntuneWin Downloader** button launches [IntuneWin Downloader](https://github.com/call4cloud-code/Intunewin-Downloader-Public), created by Rudy Ooms (call4cloud): it downloads and decrypts the Win32 apps assigned to the device directly from Intune, without installing them.
+
+It is downloaded from GitHub on first use (about 85 MB) and saved to `%LOCALAPPDATA%\IntunePackageGrabber\IntuneWinDownloader\`. Its binaries are not signed, so the tool downloads a pinned version (0.6.127, from a fixed commit) and accepts it only if its SHA-256 matches. Alternatively, extract it into an `IntuneWinDownloader` folder next to the exe.
+
 ## Download
 
 The exe is on the [Releases](../../releases/latest) page.
@@ -57,3 +63,10 @@ powershell -ExecutionPolicy Bypass -File src\test.ps1 -Work C:\temp\IPG-tests -E
 ```
 
 Simulates IME on a fake cache and `AppWorkload.log`: progressive extraction with files still open for writing, parallel packages, folders removed during the copy, retries, paths over 260 characters, unknown setup file, detection rule decoding, Listen/Stop buttons.
+
+## Credits
+
+Also shown in the app (**About & credits**).
+
+- [IntuneWin Downloader](https://github.com/call4cloud-code/Intunewin-Downloader-Public): created by Rudy Ooms (call4cloud), MIT License
+- [IntuneWinAppUtil](https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool) (Microsoft Win32 Content Prep Tool): Microsoft Corporation

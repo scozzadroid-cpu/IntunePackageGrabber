@@ -1,6 +1,8 @@
 // Intune Package Grabber
 // Captures the Win32 packages that Intune extracts to C:\Windows\IMECache during an installation
 // (e.g. from Company Portal), saves their content and rebuilds the .intunewin file with IntuneWinAppUtil.
+// Additional option: launches IntuneWin Downloader by Rudy Ooms (call4cloud), downloaded from GitHub on first use,
+// which downloads and decrypts the assigned Win32 apps directly from Intune without installing them.
 //
 // Command line options (for testing): --cache <folder> --dest <folder> --log <file> --imelogs <folder> --listen --exit-after <seconds>
 
@@ -15,6 +17,7 @@ using System.Linq;
 using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -26,8 +29,8 @@ using System.Xml;
 
 [assembly: AssemblyTitle("Intune Package Grabber")]
 [assembly: AssemblyProduct("Intune Package Grabber")]
-[assembly: AssemblyVersion("2.1.0.0")]
-[assembly: AssemblyFileVersion("2.1.0.0")]
+[assembly: AssemblyVersion("2.2.0.0")]
+[assembly: AssemblyFileVersion("2.2.0.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName = ".NET Framework 4.8")]
 
 namespace IntunePackageGrabber
@@ -155,7 +158,7 @@ namespace IntunePackageGrabber
 
         TextBox txtDest;
         TextBox txtLog;
-        Button btnBrowse, btnListen, btnStop, btnOpen, btnDownload;
+        Button btnBrowse, btnListen, btnStop, btnOpen, btnDownload, btnDownloader;
         CheckBox chkIntunewin;
         Label lblStatus;
         Panel dot;
@@ -221,7 +224,7 @@ namespace IntunePackageGrabber
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
             // Header
-            var header = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = Accent };
+            var header = new Panel { Dock = DockStyle.Top, Size = new Size(960, 72), BackColor = Accent };
             header.Paint += (s, e) =>
             {
                 using (var brush = new LinearGradientBrush(header.ClientRectangle, Accent, AccentDark, LinearGradientMode.Horizontal))
@@ -229,8 +232,14 @@ namespace IntunePackageGrabber
             };
             var title = new Label { Text = "Intune Package Grabber", ForeColor = Color.White, BackColor = Color.Transparent, Font = new Font("Segoe UI Semibold", 15f), AutoSize = true, Location = new Point(20, 8) };
             var subtitle = new Label { Text = "Captures content and .intunewin of Win32 packages while they install from Company Portal", ForeColor = Color.FromArgb(220, 235, 250), BackColor = Color.Transparent, AutoSize = true, Location = new Point(22, 46) };
+            var about = new LinkLabel { Text = "About & credits", UseMnemonic = false, BackColor = Color.Transparent, AutoSize = true,LinkBehavior = LinkBehavior.HoverUnderline, Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            about.LinkColor = about.VisitedLinkColor = Color.White;
+            about.ActiveLinkColor = Color.FromArgb(220, 235, 250);
+            about.Location = new Point(header.Width - 20 - about.PreferredWidth, 14);
+            about.LinkClicked += delegate { ShowAbout(); };
             header.Controls.Add(title);
             header.Controls.Add(subtitle);
+            header.Controls.Add(about);
 
             // Settings
             var settings = new Panel { Dock = DockStyle.Top, Height = 104, Padding = new Padding(20, 0, 20, 0) };
@@ -284,11 +293,17 @@ namespace IntunePackageGrabber
                 AutoSize = false,
                 AutoEllipsis = true,
                 Location = new Point(472, 22),
-                Size = new Size(468, 24),
+                Size = new Size(280, 24),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Font = new Font("Segoe UI Semibold", 10f)
             };
-            actions.Controls.AddRange(new Control[] { btnListen, btnStop, btnOpen, dot, lblStatus });
+            btnDownloader = MakeButton(DownloaderButtonText, Color.White, Accent);
+            btnDownloader.Location = new Point(768, 14);
+            btnDownloader.Size = new Size(172, 38);
+            btnDownloader.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnDownloader.Click += OnIntuneWinDownloader;
+            new ToolTip().SetToolTip(btnDownloader, "Additional option: IntuneWin Downloader by Rudy Ooms (call4cloud).\r\nDownloads and decrypts the Win32 apps assigned to this device directly from Intune,\r\nwithout installing them. Downloaded from GitHub on first use.");
+            actions.Controls.AddRange(new Control[] { btnListen, btnStop, btnOpen, dot, lblStatus, btnDownloader });
 
             // Package list + log
             list = new ListView
@@ -385,6 +400,53 @@ namespace IntunePackageGrabber
                 b.BackColor = b.Enabled ? (Color)b.Tag : DisabledBack;
             };
             return b;
+        }
+
+        void ShowAbout()
+        {
+            using (var about = new Form
+            {
+                Text = "About " + Text,
+                AutoScaleDimensions = new SizeF(96F, 96F),
+                AutoScaleMode = AutoScaleMode.Dpi,
+                Font = Font,
+                BackColor = Color.White,
+                ClientSize = new Size(560, 292),
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.CenterParent
+            })
+            {
+                about.SuspendLayout();
+                var title = new Label { Text = "Intune Package Grabber", Font = new Font("Segoe UI Semibold", 13f), AutoSize = true, Location = new Point(20, 16) };
+                var version = new Label { Text = "Version " + Assembly.GetExecutingAssembly().GetName().Version.ToString(3), ForeColor = TextMuted, AutoSize = true, Location = new Point(22, 46) };
+                var credits = new Label { Text = "Credits", Font = new Font("Segoe UI Semibold", 10f), AutoSize = true, Location = new Point(20, 84) };
+                var ok = MakeButton("OK", Accent, Color.White);
+                ok.Location = new Point(452, 242);
+                ok.Size = new Size(88, 32);
+                ok.DialogResult = DialogResult.OK;
+                about.Controls.AddRange(new Control[]
+                {
+                    title, version, credits,
+                    new Label { Text = "IntuneWin Downloader  •  created by Rudy Ooms (call4cloud), MIT License", AutoSize = true, Location = new Point(20, 112) },
+                    MakeLink(DownloaderRepo, new Point(20, 134)),
+                    new Label { Text = "IntuneWinAppUtil (Microsoft Win32 Content Prep Tool)  •  Microsoft Corporation", AutoSize = true, Location = new Point(20, 172) },
+                    MakeLink("https://github.com/microsoft/Microsoft-Win32-Content-Prep-Tool", new Point(20, 194)),
+                    ok
+                });
+                about.AcceptButton = about.CancelButton = ok;
+                about.ResumeLayout(false);
+                about.ShowDialog(this);
+            }
+        }
+
+        static LinkLabel MakeLink(string url, Point location)
+        {
+            var link = new LinkLabel { Text = url, AutoSize = true, Location = location, LinkColor = Accent, VisitedLinkColor = Accent, LinkBehavior = LinkBehavior.HoverUnderline };
+            link.LinkClicked += delegate { Process.Start(url); };
+            return link;
         }
 
         void SetListening(bool value)
@@ -884,6 +946,98 @@ namespace IntunePackageGrabber
                 var setupNode = xml.SelectSingleNode("//*[local-name()='SetupFile']");
                 if (setupNode == null || !string.Equals(setupNode.InnerText, expectedSetup, StringComparison.OrdinalIgnoreCase))
                     throw new Exception("invalid .intunewin: SetupFile = " + (setupNode == null ? "(missing)" : setupNode.InnerText) + ", expected " + expectedSetup);
+            }
+        }
+
+        #endregion
+
+        #region IntuneWin Downloader
+
+        // IntuneWin Downloader by Rudy Ooms (call4cloud), MIT License. Its binaries are not signed:
+        // the zip is pinned to a commit and accepted only with the expected SHA-256
+        const string DownloaderRepo = "https://github.com/call4cloud-code/Intunewin-Downloader-Public";
+        const string DownloaderVersion = "0.6.127";
+        const string DownloaderUrl = "https://raw.githubusercontent.com/call4cloud-code/Intunewin-Downloader-Public/cec58379cba47cabaf7251d96f2dba635e8f0f5a/0.6.127.zip";
+        const string DownloaderSha256 = "F7C05C224769C6B48DF0F2A34B7AB942F042F22170D5BC11B5B7E4C4CE9998E2";
+        const string DownloaderExe = "IntuneWinDownloader.WinUI.exe";
+        const string DownloaderButtonText = "IntuneWin Downloader";
+
+        // %LOCALAPPDATA%: about 200 MB once extracted, must not roam with the profile
+        static readonly string downloaderRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IntunePackageGrabber", "IntuneWinDownloader");
+
+        static string FindDownloader()
+        {
+            // 1) IntuneWinDownloader folder next to the exe, 2) downloaded to %LOCALAPPDATA%
+            foreach (var path in new[] { BesideExe(Path.Combine("IntuneWinDownloader", DownloaderExe)), Path.Combine(downloaderRoot, DownloaderVersion, DownloaderExe) })
+                if (File.Exists(path)) return path;
+            return null;
+        }
+
+        async void OnIntuneWinDownloader(object sender, EventArgs e)
+        {
+            string exe = FindDownloader();
+            if (exe == null)
+            {
+                if (MessageBox.Show(this, "IntuneWin Downloader " + DownloaderVersion + ", created by Rudy Ooms (call4cloud), downloads and decrypts the Win32 apps assigned to this device directly from Intune, without installing them.\r\n\r\nDownload it now from GitHub (about 85 MB)?\r\n" + DownloaderRepo, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                    return;
+
+                btnDownloader.Enabled = false;
+                string temp = Path.Combine(Path.GetTempPath(), "IntunePackageGrabber", Guid.NewGuid().ToString("N") + ".zip");
+                string staging = Path.Combine(downloaderRoot, "_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                try
+                {
+                    Log("Downloading IntuneWin Downloader " + DownloaderVersion + " from " + DownloaderUrl);
+                    Directory.CreateDirectory(Path.GetDirectoryName(temp));
+                    ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+                    using (var client = new WebClient())
+                    {
+                        client.DownloadProgressChanged += (s, a) => btnDownloader.Text = "Downloading " + a.ProgressPercentage + "%";
+                        await client.DownloadFileTaskAsync(DownloaderUrl, temp);
+                    }
+
+                    btnDownloader.Text = "Extracting...";
+                    await Task.Run(() =>
+                    {
+                        string hash;
+                        using (var sha = SHA256.Create())
+                        using (var fs = File.OpenRead(temp)) hash = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "");
+                        if (!string.Equals(hash, DownloaderSha256, StringComparison.OrdinalIgnoreCase)) throw new Exception("unexpected SHA-256 " + hash);
+
+                        // Extracted to a staging folder first: an interrupted extraction never leaves a partial version
+                        ZipFile.ExtractToDirectory(temp, staging);
+                        string target = Path.Combine(downloaderRoot, DownloaderVersion);
+                        if (Directory.Exists(target)) Directory.Delete(target, true);
+                        Directory.Move(Path.Combine(staging, DownloaderVersion), target);
+                    });
+                    exe = FindDownloader();
+                    if (exe == null) throw new Exception(DownloaderExe + " not found in the package");
+                    Log("IntuneWin Downloader downloaded and verified (SHA-256): " + Path.GetDirectoryName(exe));
+                }
+                catch (Exception ex)
+                {
+                    exe = null;
+                    Log("ERROR downloading IntuneWin Downloader: " + ex.Message);
+                    MessageBox.Show(this, "IntuneWin Downloader download failed:\r\n" + ex.Message + "\r\n\r\nAlternatively, extract it from " + DownloaderRepo + " into an IntuneWinDownloader folder next to IntunePackageGrabber.exe.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                finally
+                {
+                    try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+                    try { if (Directory.Exists(staging)) Directory.Delete(staging, true); } catch { }
+                    btnDownloader.Text = DownloaderButtonText;
+                    btnDownloader.Enabled = true;
+                }
+                if (exe == null) return;
+            }
+
+            try
+            {
+                // Inherits the elevation of the Grabber (IntuneWin Downloader must run as administrator)
+                Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(exe) });
+                Log("IntuneWin Downloader started: " + exe);
+            }
+            catch (Exception ex)
+            {
+                Log("ERROR starting IntuneWin Downloader: " + ex.Message);
             }
         }
 
